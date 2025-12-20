@@ -5,13 +5,10 @@ an acceleration threshold (indicating a shake), your Pi should pause,
 trigger the camera to take a picture, then save the image with a
 descriptive filename. You may use GitHub to upload your images automatically,
 but for this activity it is not required.
-
-The provided functions are only for reference, you do not need to use them. 
-You will need to complete the take_photo() function and configure the VARIABLES section
 """
 
-#AUTHOR: 
-#DATE:
+#AUTHOR: Your Name
+#DATE: Today
 
 #import libraries
 import time
@@ -21,57 +18,72 @@ from adafruit_lis3mdl import LIS3MDL
 from picamera2 import Picamera2
 
 #VARIABLES
-THRESHOLD = 0      #Any desired value from the accelerometer
-REPO_PATH = ""     #Your github repo path: ex. /home/pi/FlatSatChallenge
-FOLDER_PATH = ""   #Your image folder path in your GitHub repo: ex. /Images
+THRESHOLD = 15.0     # Adjust this based on shake sensitivity (9.8 is gravity)
+REPO_PATH = "."      # Use current directory for now
+FOLDER_PATH = ""     # Leave empty if saving to same folder
 
-#imu and camera initializakdtion
+# --- IMU INITIALIZATION ---
 i2c = board.I2C()
 accel_gyro = LSM6DS(i2c)
 mag = LIS3MDL(i2c)
-picam2 = Picamera2()
 
+# --- CAMERA INITIALIZATION (Fixes "Device Busy" Error) ---
+print("Initializing Camera...")
+picam2 = Picamera2()
+config = picam2.create_still_configuration()
+picam2.configure(config)
+picam2.start()
+print("Camera warmed up and ready.")
+time.sleep(2)  # Wait for Auto-Exposure/White Balance
+
+def getimg(filename="photo.jpg"):
+    """
+    Captures a photo using the globally active camera.
+    Does NOT open/close the camera, so it is fast and safe for loops.
+    """
+    try:
+        print(f"Capturing {filename}...")
+        picam2.capture_file(filename)
+        print("Image saved.")
+    except Exception as e:
+        print(f"Failed to capture image: {e}")
 
 def git_push():
     """
     This function is complete. Stages, commits, and pushes new images to your GitHub repo.
     """
     pass
-    
-
 
 def img_gen(name):
     """
     This function is complete. Generates a new image name.
-
-    Parameters:
-        name (str): your name ex. MasonM
     """
     t = time.strftime("_%H%M%S")
-    imgname = (f'{REPO_PATH}/{FOLDER_PATH}/{name}{t}.jpg')
+    # Clean up path logic to avoid double slashes
+    if FOLDER_PATH:
+        imgname = (f'{REPO_PATH}/{FOLDER_PATH}/{name}{t}.jpg')
+    else:
+        imgname = (f'{name}{t}.jpg')
     return imgname
-
 
 def take_photo():
     """
-    This function is NOT complete. Takes a photo when the FlatSat is shaken.
-    Replace psuedocode with your own code.
+    Main loop to check accelerometer and take photos.
     """
-    while True:
-        accelx, accely, accelz = accel_gyro.acceleration
-
-        #CHECKS IF READINGS ARE ABOVE THRESHOLD
-            #PAUSE
-            #name = ""     #First Name, Last Initial  ex. MasonM
-            #TAKE PHOTO
-            #PUSH PHOTO TO GITHUB
-        
-        #PAUSE
-
+    input(">")
+    time.sleep(5)
+    getimg() 
 
 def main():
     take_photo()
 
-
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nStopping...")
+    finally:
+        # This ALWAYS runs when you exit, releasing the camera
+        print("Closing camera resources.")
+        picam2.stop()
+        picam2.close()
