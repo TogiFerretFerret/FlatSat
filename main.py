@@ -70,9 +70,28 @@ def take_photo():
     """
     Main loop to check accelerometer and take photos.
     """
-    input(">")
-    time.sleep(5)
-    getimg() 
+    print("Ready to detect shakes...")
+    
+    # 1. Run the loop
+    while True:
+        # 2. Read Acceleration
+        accel_x, accel_y, accel_z = accel_gyro.acceleration
+        magnitude = (accel_x**2 + accel_y**2 + accel_z**2)**0.5
+        print("Magnitude:", magnitude)
+        # 3. Check Threshold
+        # (You can use magnitude > THRESHOLD or check axes individually)
+        if magnitude > THRESHOLD:
+            print(f"SHAKE DETECTED! (x:{accel_x:.1f} y:{accel_y:.1f} z:{accel_z:.1f})")
+            
+            # 4. Generate Name and Take Photo
+            image_name = img_gen("FlatSat")
+            getimg(image_name)
+            
+            # 5. Pause to prevent taking 50 photos for one shake
+            time.sleep(2) 
+        
+        # Small delay to keep CPU usage low
+        time.sleep(0.1)
 
 def main():
     take_photo()
