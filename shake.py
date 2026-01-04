@@ -7,7 +7,7 @@ descriptive filename. You may use GitHub to upload your images automatically,
 but for this activity it is not required.
 """
 
-#AUTHOR: Your Name
+#AUTHOR: ur mom (jk, riverxia)
 #DATE: Today
 
 #import libraries
