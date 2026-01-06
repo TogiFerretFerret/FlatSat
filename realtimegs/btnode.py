@@ -33,11 +33,11 @@ try:
     # 4608 x 2592 (16:9 Aspect Ratio)
     # This is higher than 4K UHD.
     config = cam.picam2.create_video_configuration(
-        main={"size": (3840, 2160), "format": "RGB888"}
+        main={"size": (1920, 1080), "format": "RGB888"}
     )
     cam.picam2.configure(config)
     cam.picam2.start()
-    print("[System] Camera Active at 4608x2592 (4.6K).")
+    print("[System] Camera Active at 1920x1080 (FHD).")
 except Exception as e:
     print(f"[System] Camera Reconfig Failed: {e}")
 
