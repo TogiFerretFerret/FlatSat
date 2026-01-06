@@ -6,6 +6,7 @@ import struct
 import os
 import sys
 import io
+import traceback # Added for detailed error logging
 
 # --- HARDWARE IMPORTS ---
 try:
@@ -76,6 +77,9 @@ class BluetoothNode:
                 print("[BT] Waiting for Ground Station...")
                 self.client_sock, address = self.server_sock.accept()
                 print(f"[BT] Connected to {address}")
+                
+                # CRITICAL: Blocking mode ensures we don't get Error 11 (Resource Unavailable)
+                # when the buffer fills up. The OS will pause our script until space is available.
                 self.client_sock.setblocking(True)
                 
                 self.handle_client()
@@ -176,9 +180,6 @@ class BluetoothNode:
                 # print(f"[BT] Received: {cmd}") # Commented out to reduce spam
 
                 if cmd == "SNAP":
-                    # We handle the image send in a separate thread or immediately?
-                    # Since send_packet is locked, we can do it here safely.
-                    # It will just pause telemetry for ~0.5s while image sends.
                     self.send_image()
 
             except Exception as e:
@@ -195,6 +196,10 @@ class BluetoothNode:
         stream = io.BytesIO()
         try:
             # 1. Capture to RAM
+            # Why MJPEG/JPEG and not H.264?
+            # - H.264 over raw RFCOMM is complex (NAL units, headers).
+            # - Packet loss in H.264 causes artifacts.
+            # - JPEG is stateless; losing a frame is fine.
             self.camera.picam2.capture_file(stream, format="jpeg")
             stream.seek(0)
             img_bytes = stream.read()
@@ -224,8 +229,10 @@ class BluetoothNode:
                 self.send_packet("SKIP", b"")
             
         except Exception as e:
+            # Added Traceback to debug "Image is Error" issues
+            traceback.print_exc()
             print(f"[BT] Capture Error: {e}")
-            self.send_packet("ERR_", "Cam Fail")
+            self.send_packet("ERR_", f"Cam Fail: {str(e)}")
 
     def cleanup(self):
         self.running = False

@@ -3,171 +3,232 @@ import threading
 import struct
 import json
 import time
-import os
-from flask import Flask, render_template_string, send_file, request
+import io
+from flask import Flask, render_template_string, send_file, request, jsonify, Response
 
 # --- CONFIGURATION ---
-# Add all your nodes here!
-NODES = {
-    "NODE_1 (IMU+CAM)": "D8:3A:DD:3C:12:16", # <-- Replace with Pi 1 MAC
-}
-
-SAVE_DIR = "ground_data"
-if not os.path.exists(SAVE_DIR): os.makedirs(SAVE_DIR)
+# REPLACE with your Pi's MAC Address
+PI_MAC_ADDRESS = "D8:3A:DD:3C:12:16" 
 
 app = Flask(__name__)
 
-# --- CONNECTION MANAGER ---
-class NodeConnection:
-    def __init__(self, name, mac):
-        self.name = name
+class SingleNodeGS:
+    def __init__(self, mac):
         self.mac = mac
         self.sock = None
-        self.telemetry = {"status": "CONNECTING..."}
-        self.last_image = None
+        
+        # Data storage (RAM ONLY)
+        self.telemetry = {"status": "STARTING..."}
+        self.last_image_bytes = None 
+        self.last_image_ts = 0
+        
         self.connected = False
+        self.streaming = False
         self.lock = threading.Lock()
         
-        # Start connection thread automatically
-        t = threading.Thread(target=self.connect_loop)
-        t.daemon = True
-        t.start()
+        # Start connection manager in background
+        self.thread = threading.Thread(target=self.connect_loop)
+        self.thread.daemon = True
+        self.thread.start()
 
     def connect_loop(self):
+        """Persistent connection manager that auto-reconnects."""
         while True:
             try:
-                print(f"[{self.name}] Connecting to {self.mac}...")
+                print(f"[GS] Connecting to {self.mac}...")
                 self.sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
                 self.sock.connect((self.mac, 1))
-                self.connected = True
-                print(f"[{self.name}] Connected!")
                 
+                self.connected = True
+                print("[GS] Connected!")
+                
+                # Start listening
                 self.receive_loop()
                 
             except Exception as e:
+                print(f"[GS] Connection Failed: {e}")
                 self.connected = False
-                self.telemetry = {"status": f"OFFLINE ({e})"}
-                time.sleep(5) # Retry delay
+                with self.lock:
+                    self.telemetry = {"status": f"OFFLINE ({str(e)})"}
+                # Wait before retrying
+                time.sleep(5)
 
     def send_command(self, cmd_type, payload=""):
-        if not self.connected: return
+        if not self.connected or not self.sock: return
         try:
             data = payload.encode('utf-8')
             header = struct.pack("!4sI", cmd_type.encode('utf-8'), len(data))
             self.sock.sendall(header + data)
-        except:
+        except Exception as e:
+            print(f"[GS] Send Error: {e}")
             self.connected = False
 
     def receive_loop(self):
+        """Main data pump. Blocks until socket dies."""
         while self.connected:
             try:
-                # Read Header
+                # 1. Read Header (8 bytes)
                 header = self.sock.recv(8)
                 if not header: break
                 
                 type_bytes, length = struct.unpack("!4sI", header)
                 pkt_type = type_bytes.decode('utf-8')
 
-                # Read Payload
+                # 2. Read Payload (Handle fragmentation)
                 payload = b''
                 while len(payload) < length:
                     chunk = self.sock.recv(length - len(payload))
                     if not chunk: break
                     payload += chunk
+                
+                if len(payload) != length: break
 
-                # Handle Data
+                # 3. Process Data
                 if pkt_type == "TELE":
                     with self.lock:
                         self.telemetry = json.loads(payload.decode('utf-8'))
                 
                 elif pkt_type == "IMG_":
-                    print(f"[{self.name}] Received Image!")
-                    fname = f"{self.name.replace(' ', '_')}_{int(time.time())}.jpg"
-                    fpath = os.path.join(SAVE_DIR, fname)
-                    with open(fpath, "wb") as f:
-                        f.write(payload)
-                    self.last_image = fpath
+                    print(f"[GS] Image in RAM ({len(payload)} bytes)")
+                    with self.lock:
+                        self.last_image_bytes = payload
+                        self.last_image_ts = time.time()
+                    
+                    # Auto-loop if streaming
+                    if self.streaming:
+                        time.sleep(0.05)
+                        self.send_command("SNAP")
+                
+                elif pkt_type == "SKIP":
+                    # Pi says "Image hasn't changed", so we request again immediately
+                    if self.streaming:
+                        time.sleep(0.05)
+                        self.send_command("SNAP")
 
             except Exception as e:
-                print(f"[{self.name}] Error: {e}")
+                print(f"[GS] Receive Error: {e}")
                 break
         
-        self.sock.close()
+        # Cleanup if loop exits
+        if self.sock: 
+            try: self.sock.close()
+            except: pass
         self.connected = False
 
-# Initialize Connections
-connections = {}
-for name, mac in NODES.items():
-    connections[name] = NodeConnection(name, mac)
+# Init the Global Node
+node = SingleNodeGS(PI_MAC_ADDRESS)
 
-# --- WEB DASHBOARD ---
+# --- FLASK ROUTES ---
+
 @app.route('/')
 def index():
-    # Gather data for template
-    nodes_data = []
-    for name, conn in connections.items():
-        with conn.lock:
-            nodes_data.append({
-                "name": name,
-                "connected": conn.connected,
-                "telemetry": json.dumps(conn.telemetry, indent=2),
-                "image": conn.last_image
-            })
-            
     return render_template_string("""
     <html>
     <head>
-        <title>Swarm Control</title>
-        <meta http-equiv="refresh" content="2">
+        <title>Artemis Ground Station</title>
         <style>
-            body { font-family: monospace; background: #222; color: #ddd; padding: 20px; }
-            .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; }
-            .node { background: #000; border: 1px solid #444; padding: 15px; }
-            .online { border-color: #0f0; }
-            .offline { border-color: #f00; }
-            img { width: 100%; border: 1px solid #555; margin-top: 10px; }
-            button { background: #008800; color: white; padding: 10px; width: 100%; border: none; cursor: pointer; }
+            body { font-family: monospace; background: #111; color: #0f0; padding: 20px; }
+            .box { border: 1px solid #444; padding: 15px; margin-bottom: 20px; background: #000; }
+            .img-box { text-align: center; min-height: 480px; display: flex; align-items: center; justify-content: center; background: #050505; }
+            img { max-width: 100%; border: 1px solid #333; }
+            button { padding: 15px 30px; font-size: 1.2em; font-weight: bold; cursor: pointer; border: none; margin-right: 10px; }
+            .btn-snap { background: #008800; color: white; }
+            .btn-stream { background: #004400; color: #aaa; }
+            .streaming { background: #ff0000; color: white; }
+            pre { font-size: 1.1em; }
         </style>
+        <script>
+            // Poll for data updates
+            setInterval(async () => {
+                try {
+                    let res = await fetch('/api/data');
+                    let data = await res.json();
+                    
+                    // Update Telemetry Text
+                    document.getElementById('telemetry').innerText = JSON.stringify(data.telemetry, null, 2);
+                    
+                    // Update Image if Timestamp changed
+                    let img = document.getElementById('live-img');
+                    if(data.image_ts != img.dataset.ts) {
+                        img.src = "/img_ram?t=" + data.image_ts;
+                        img.dataset.ts = data.image_ts;
+                    }
+                } catch(e) {}
+            }, 100);
+
+            async function toggleStream() {
+                let btn = document.getElementById('btn-stream');
+                let res = await fetch('/toggle_stream', {method: 'POST'});
+                let status = await res.json();
+                
+                if(status.streaming) {
+                    btn.innerText = "STOP STREAM";
+                    btn.classList.add("streaming");
+                } else {
+                    btn.innerText = "START AUTO-STREAM";
+                    btn.classList.remove("streaming");
+                }
+            }
+            
+            async function snap() {
+                await fetch('/snap', {method: 'POST'});
+            }
+        </script>
     </head>
     <body>
-        <h1>ARTEMIS SWARM DASHBOARD</h1>
-        <div class="grid">
-            {% for node in nodes %}
-            <div class="node {{ 'online' if node.connected else 'offline' }}">
-                <h2>{{ node.name }}</h2>
-                <pre>{{ node.telemetry }}</pre>
-                
-                {% if node.image %}
-                    <img src="/img_view?path={{ node.image }}">
-                {% else %}
-                    <div style="padding:20px; text-align:center; color:#555;">NO IMAGE</div>
-                {% endif %}
-                
-                <br><br>
-                <form action="/snap" method="post">
-                    <input type="hidden" name="node_name" value="{{ node.name }}">
-                    <button type="submit">REQUEST PHOTO</button>
-                </form>
-            </div>
-            {% endfor %}
+        <h1>ARTEMIS ONE // GROUND STATION</h1>
+        
+        <div class="box img-box">
+            <img id="live-img" data-ts="0" src="" alt="WAITING FOR DATA...">
+        </div>
+
+        <div class="box">
+            <button class="btn-snap" onclick="snap()">SINGLE SNAP</button>
+            <button id="btn-stream" class="btn-stream" onclick="toggleStream()">START AUTO-STREAM</button>
+        </div>
+
+        <div class="box">
+            <h3>AVIONICS TELEMETRY</h3>
+            <pre id="telemetry">Connecting...</pre>
         </div>
     </body>
     </html>
-    """, nodes=nodes_data)
+    """)
 
-@app.route('/img_view')
-def img_view():
-    path = request.args.get('path')
-    if path and os.path.exists(path):
-        return send_file(path)
-    return "Error"
+@app.route('/api/data')
+def api_data():
+    """JSON API for JS Polling"""
+    with node.lock:
+        return jsonify({
+            "telemetry": node.telemetry,
+            "image_ts": node.last_image_ts
+        })
+
+@app.route('/img_ram')
+def img_ram():
+    """Serves the image directly from RAM (BytesIO)"""
+    img_data = None
+    with node.lock:
+        if node.last_image_bytes:
+            img_data = io.BytesIO(node.last_image_bytes)
+    
+    if img_data:
+        img_data.seek(0)
+        return send_file(img_data, mimetype='image/jpeg')
+    return "", 404
 
 @app.route('/snap', methods=['POST'])
 def snap():
-    name = request.form.get('node_name')
-    if name in connections:
-        connections[name].send_command("SNAP")
-    return f"Snap requested for {name}. <a href='/'>Back</a>"
+    node.send_command("SNAP")
+    return jsonify({"status": "ok"})
+
+@app.route('/toggle_stream', methods=['POST'])
+def toggle_stream():
+    node.streaming = not node.streaming
+    if node.streaming:
+        node.send_command("SNAP") # Kickstart
+    return jsonify({"streaming": node.streaming})
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+    # threaded=True is essential for Flask to handle the background connection
+    app.run(host='0.0.0.0', port=5000, threaded=True)
