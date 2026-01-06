@@ -5,9 +5,9 @@ import json
 import struct
 import os
 import sys
-import io  # Added for RAM-based image capture (Faster)
+import io
 
-# --- HARDWARE IMPORTS (With Safety Checks) ---
+# --- HARDWARE IMPORTS ---
 try:
     from hardware.camera import CameraSystem
     CAMERA_AVAILABLE = True
@@ -24,7 +24,6 @@ except ImportError:
     print("[System] IMU module/libraries not found. Running in Sensorless Mode.")
     IMU = None
 
-# Config
 from config import DATA_DIR
 
 class BluetoothNode:
@@ -33,18 +32,19 @@ class BluetoothNode:
         self.client_sock = None
         self.running = True
         
-        # --- INIT CAMERA ---
+        # CRITICAL: Lock to prevent Telemetry and Image threads 
+        # from fighting over the socket and crashing connection.
+        self.socket_lock = threading.Lock()
+        
+        # Init Hardware
+        self.camera = None
         if CAMERA_AVAILABLE:
             try:
                 self.camera = CameraSystem()
                 print("[System] Camera Initialized.")
             except Exception as e:
                 print(f"[System] Camera Init Failed: {e}")
-                self.camera = None
-        else:
-            self.camera = None
 
-        # --- INIT IMU ---
         self.imu = None
         if IMU:
             try:
@@ -54,14 +54,14 @@ class BluetoothNode:
                 print(f"[System] IMU Init Failed: {e}")
 
     def start_server(self):
-        """Sets up the RFCOMM Bluetooth Server."""
+        # 1. Setup Bluetooth Config (Linux specific)
+        print("[BT] Configuring Adapter...")
+        os.system("sudo hciconfig hci0 piscan") # Make discoverable
+        os.system("sdptool add SP")             # Advertise Serial Port
+
         try:
             self.server_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
-            
-            # FIXED: Use explicit BDADDR_ANY instead of empty string
-            # This fixes "bad bluetooth address" on newer Linux kernels
-            self.server_sock.bind(("00:00:00:00:00:00", 1)) 
-            
+            self.server_sock.bind(("00:00:00:00:00:00", 1)) # Bind to Any, Port 1
             self.server_sock.listen(1)
             
             print("[BT] Listening on RFCOMM Channel 1...")
@@ -70,8 +70,8 @@ class BluetoothNode:
                 print("[BT] Waiting for Ground Station...")
                 self.client_sock, address = self.server_sock.accept()
                 print(f"[BT] Connected to {address}")
-                # Set socket to blocking mode for reliability
                 self.client_sock.setblocking(True)
+                
                 self.handle_client()
                 
         except Exception as e:
@@ -80,7 +80,13 @@ class BluetoothNode:
             self.cleanup()
 
     def send_packet(self, type_str, payload):
+        """
+        Thread-safe packet sender. 
+        Splits large data (images) into chunks to prevent buffer overflow.
+        """
         if not self.client_sock: return
+
+        # Prepare Data
         try:
             if isinstance(payload, dict):
                 data_bytes = json.dumps(payload).encode('utf-8')
@@ -88,57 +94,72 @@ class BluetoothNode:
                 data_bytes = payload
             else:
                 data_bytes = str(payload).encode('utf-8')
-
-            # Header: [Type:4s][Len:I] (8 bytes total)
-            header = struct.pack("!4sI", type_str.encode('utf-8'), len(data_bytes))
-            self.client_sock.sendall(header + data_bytes)
         except Exception as e:
-            print(f"[BT] Send Error: {e}")
-            # If send fails, assume client disconnected
-            if self.client_sock:
+            print(f"[BT] Encode Error: {e}")
+            return
+
+        total_len = len(data_bytes)
+        
+        # Construct Header [Type:4s][Len:I]
+        header = struct.pack("!4sI", type_str.encode('utf-8'), total_len)
+
+        # CRITICAL: The Lock!
+        # Only one thread can write to the socket at a time.
+        with self.socket_lock:
+            try:
+                # 1. Send Header
+                self.client_sock.sendall(header)
+                
+                # 2. Send Payload (Chunked for stability)
+                # Sending 75KB at once often chokes RFCOMM. 
+                # We break it into 2048 byte chunks.
+                CHUNK_SIZE = 2048
+                for i in range(0, total_len, CHUNK_SIZE):
+                    chunk = data_bytes[i:i+CHUNK_SIZE]
+                    self.client_sock.sendall(chunk)
+                    
+            except Exception as e:
+                print(f"[BT] Socket Error during send: {e}")
                 try:
                     self.client_sock.close()
                 except: pass
-            self.client_sock = None
+                self.client_sock = None
 
     def handle_client(self):
-        """Main loop for a connected client."""
-        # Start command listener
+        # Start listening for "SNAP" commands in background
         read_thread = threading.Thread(target=self.read_commands)
         read_thread.daemon = True
         read_thread.start()
 
-        print("[BT] Streaming Realtime Telemetry...")
+        print("[BT] Streaming Telemetry...")
         while self.running and self.client_sock:
-            # 1. Get Data (or Mock it if no IMU)
+            # 1. Gather Telemetry
             if self.imu and self.imu.ready:
                 telemetry = self.imu.get_data()
             else:
-                # SENSORLESS FALLBACK
                 telemetry = {
                     "status": "NO_SENSOR", 
                     "accel": {"x":0, "y":0, "z":0},
-                    "temp": 0,
                     "timestamp": time.time()
                 }
             
-            # 2. Send Packet
+            # 2. Send (Protected by Lock inside send_packet)
             self.send_packet("TELE", telemetry)
             
-            # FAST UPDATES: 20Hz (0.05s). 
-            # Bluetooth RFCOMM can handle this easily for small text packets.
+            # 20Hz Update Rate
             time.sleep(0.05) 
 
     def read_commands(self):
+        """Reads incoming commands from the laptop."""
         while self.running and self.client_sock:
             try:
-                # Blocking read for the header
+                # We assume the socket lock is NOT held during recv, 
+                # which is standard. Recv blocks until data arrives.
                 header = self.client_sock.recv(8)
                 if not header: break
                 
                 cmd_type, cmd_len = struct.unpack("!4sI", header)
                 
-                # Blocking read for payload
                 cmd_payload = b''
                 while len(cmd_payload) < cmd_len:
                     chunk = self.client_sock.recv(cmd_len - len(cmd_payload))
@@ -146,41 +167,39 @@ class BluetoothNode:
                     cmd_payload += chunk
                 
                 cmd = cmd_type.decode('utf-8')
-                print(f"[BT] CMD Received: {cmd}")
+                print(f"[BT] Received: {cmd}")
 
                 if cmd == "SNAP":
+                    # We handle the image send in a separate thread or immediately?
+                    # Since send_packet is locked, we can do it here safely.
+                    # It will just pause telemetry for ~0.5s while image sends.
                     self.send_image()
 
             except Exception as e:
-                print(f"[BT] Read Error: {e}")
+                print(f"[BT] Read Loop Error: {e}")
                 break
-        print("[BT] Client Disconnected.")
+        print("[BT] Read Loop Ended.")
 
     def send_image(self):
         if not self.camera:
-            self.send_packet("ERR_", "No Camera Hardware")
+            self.send_packet("ERR_", "No Camera")
             return
 
-        print("[BT] Capturing to RAM...")
-        # OPTIMIZATION: Use BytesIO to capture to RAM instead of SD Card
-        # This is much faster for "Realtime" feel
+        print("[BT] Snapping to RAM...")
         stream = io.BytesIO()
-        
         try:
-            # Picamera2 native capture to stream
             self.camera.picam2.capture_file(stream, format="jpeg")
-            
-            # Get the bytes
             stream.seek(0)
             img_bytes = stream.read()
             
             print(f"[BT] Sending {len(img_bytes)} bytes...")
-            self.send_packet("IMG_", img_bytes)
-            print("[BT] Transfer Complete.")
+            # This call is Thread-Safe now!
+            self.send_packet("IMG_", img_bytes) 
+            print("[BT] Image Sent.")
             
         except Exception as e:
-            print(f"[BT] Snap Error: {e}")
-            self.send_packet("ERR_", "Capture Failed")
+            print(f"[BT] Capture Error: {e}")
+            self.send_packet("ERR_", "Cam Fail")
 
     def cleanup(self):
         self.running = False
