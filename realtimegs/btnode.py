@@ -36,6 +36,12 @@ class BluetoothNode:
         # from fighting over the socket and crashing connection.
         self.socket_lock = threading.Lock()
         
+        # Motion Gating State
+        self.last_img_size = 0
+        self.last_img_time = 0
+        self.FORCE_REFRESH_SEC = 5.0 # Send full frame every 5s anyway
+        self.DIFF_THRESHOLD = 0.02   # 2% size change = Motion Detected
+        
         # Init Hardware
         self.camera = None
         if CAMERA_AVAILABLE:
@@ -167,7 +173,7 @@ class BluetoothNode:
                     cmd_payload += chunk
                 
                 cmd = cmd_type.decode('utf-8')
-                print(f"[BT] Received: {cmd}")
+                # print(f"[BT] Received: {cmd}") # Commented out to reduce spam
 
                 if cmd == "SNAP":
                     # We handle the image send in a separate thread or immediately?
@@ -185,17 +191,37 @@ class BluetoothNode:
             self.send_packet("ERR_", "No Camera")
             return
 
-        print("[BT] Snapping to RAM...")
+        # print("[BT] Snap request...")
         stream = io.BytesIO()
         try:
+            # 1. Capture to RAM
             self.camera.picam2.capture_file(stream, format="jpeg")
             stream.seek(0)
             img_bytes = stream.read()
+            current_size = len(img_bytes)
             
-            print(f"[BT] Sending {len(img_bytes)} bytes...")
-            # This call is Thread-Safe now!
-            self.send_packet("IMG_", img_bytes) 
-            print("[BT] Image Sent.")
+            # 2. Motion Gating Logic (Minimizing Data)
+            # Calculate percent difference in file size
+            # (JPEG size roughly correlates with scene complexity/changes)
+            size_diff = 0
+            if self.last_img_size > 0:
+                size_diff = abs(current_size - self.last_img_size) / self.last_img_size
+            
+            time_since_last = time.time() - self.last_img_time
+
+            # 3. Decision: Send or Skip?
+            # Send if: Time elapsed > 5s OR Difference > 2%
+            if (time_since_last > self.FORCE_REFRESH_SEC) or (size_diff > self.DIFF_THRESHOLD):
+                # print(f"[BT] Sending Image ({current_size} bytes, diff {size_diff:.2%})...")
+                self.send_packet("IMG_", img_bytes) 
+                
+                # Update State
+                self.last_img_size = current_size
+                self.last_img_time = time.time()
+            else:
+                # print(f"[BT] Skipped (diff {size_diff:.2%})")
+                # Send a tiny packet saying "Nothing New" to satisfy the GS auto-loop
+                self.send_packet("SKIP", b"")
             
         except Exception as e:
             print(f"[BT] Capture Error: {e}")
