@@ -6,7 +6,8 @@ import struct
 import os
 import sys
 import io
-import traceback # Added for detailed error logging
+import traceback
+import subprocess # Added for RSSI commands
 
 # --- HARDWARE IMPORTS ---
 try:
@@ -42,6 +43,10 @@ class BluetoothNode:
         self.last_img_time = 0
         self.FORCE_REFRESH_SEC = 5.0 # Send full frame every 5s anyway
         self.DIFF_THRESHOLD = 0.02   # 2% size change = Motion Detected
+        
+        # RSSI State
+        self.cached_rssi = 0
+        self.last_rssi_time = 0
         
         # Init Hardware
         self.camera = None
@@ -82,12 +87,36 @@ class BluetoothNode:
                 # when the buffer fills up. The OS will pause our script until space is available.
                 self.client_sock.setblocking(True)
                 
-                self.handle_client()
+                # Pass the client MAC address to the handler for RSSI queries
+                self.handle_client(address[0])
                 
         except Exception as e:
             print(f"[BT] Server Error: {e}")
         finally:
             self.cleanup()
+
+    def get_rssi(self, mac_address):
+        """Queries the system for Signal Strength (RSSI)."""
+        # Throttle: Only query every 2 seconds to prevent CPU spikes
+        if time.time() - self.last_rssi_time < 2.0:
+            return self.cached_rssi
+            
+        try:
+            # Uses 'hcitool rssi <MAC>' command
+            # Output format: "RSSI return value: -52"
+            cmd = ["hcitool", "rssi", mac_address]
+            result = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)
+            result_str = result.decode('utf-8').strip()
+            if "return value" in result_str:
+                # Extract the number after the colon
+                val = int(result_str.split(":")[1])
+                self.cached_rssi = val
+                self.last_rssi_time = time.time()
+                return val
+        except Exception:
+            # hcitool might fail if connection momentarily drops or command doesn't exist
+            pass
+        return self.cached_rssi
 
     def send_packet(self, type_str, payload):
         """
@@ -135,7 +164,7 @@ class BluetoothNode:
                 except: pass
                 self.client_sock = None
 
-    def handle_client(self):
+    def handle_client(self, client_mac):
         # Start listening for "SNAP" commands in background
         read_thread = threading.Thread(target=self.read_commands)
         read_thread.daemon = True
@@ -153,7 +182,10 @@ class BluetoothNode:
                     "timestamp": time.time()
                 }
             
-            # 2. Send (Protected by Lock inside send_packet)
+            # 2. Add RSSI Data
+            telemetry["rssi"] = self.get_rssi(client_mac)
+            
+            # 3. Send (Protected by Lock inside send_packet)
             self.send_packet("TELE", telemetry)
             
             # 20Hz Update Rate
@@ -195,19 +227,17 @@ class BluetoothNode:
         # print("[BT] Snap request...")
         stream = io.BytesIO()
         try:
-            # 1. Capture to RAM
-            # Why MJPEG/JPEG and not H.264?
-            # - H.264 over raw RFCOMM is complex (NAL units, headers).
-            # - Packet loss in H.264 causes artifacts.
-            # - JPEG is stateless; losing a frame is fine.
-            self.camera.picam2.capture_file(stream, format="jpeg")
+            # 1. Capture to RAM with COMPRESSION
+            # QUALITY=25 drastically reduces size (75KB -> ~15KB)
+            # This is the key to faster framerates over Bluetooth
+            self.camera.picam2.capture_file(stream, format="jpeg", options={"quality": 25})
+            
             stream.seek(0)
             img_bytes = stream.read()
             current_size = len(img_bytes)
             
             # 2. Motion Gating Logic (Minimizing Data)
             # Calculate percent difference in file size
-            # (JPEG size roughly correlates with scene complexity/changes)
             size_diff = 0
             if self.last_img_size > 0:
                 size_diff = abs(current_size - self.last_img_size) / self.last_img_size
