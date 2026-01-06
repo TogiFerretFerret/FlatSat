@@ -33,7 +33,7 @@ try:
     # 4608 x 2592 (16:9 Aspect Ratio)
     # This is higher than 4K UHD.
     config = cam.picam2.create_video_configuration(
-        main={"size": (4608, 2592), "format": "RGB888"}
+        main={"size": (3840, 2160), "format": "RGB888"}
     )
     cam.picam2.configure(config)
     cam.picam2.start()
