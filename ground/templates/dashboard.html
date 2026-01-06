@@ -194,6 +194,20 @@
             </div>
 
             <div class="stat-group">
+                <span class="stat-label">THERMALS</span>
+                <div class="axis-grid" style="grid-template-columns: 1fr 1fr;">
+                    <div class="axis-box">
+                        <span class="axis-name">IMU (AMBIENT)</span><br>
+                        <span id="temp-imu" class="stat-value" style="font-size:1.1rem">--</span><span class="stat-unit">°C</span>
+                    </div>
+                    <div class="axis-box">
+                        <span class="axis-name">CPU (CORE)</span><br>
+                        <span id="temp-cpu" class="stat-value" style="font-size:1.1rem">--</span><span class="stat-unit">°C</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stat-group">
                 <span class="stat-label">ACCELERATION</span>
                 <div class="axis-grid">
                     <div class="axis-box"><span class="axis-name">X</span><br><span id="ax">0.0</span></div>
@@ -237,6 +251,14 @@
             // RSSI
             if (data.rssi !== undefined) {
                 document.getElementById('rssi').innerText = data.rssi;
+            }
+
+            // Thermals
+            if (data.temp !== undefined) {
+                 document.getElementById('temp-imu').innerText = data.temp.toFixed(1);
+            }
+            if (data.cpu_temp !== undefined) {
+                 document.getElementById('temp-cpu').innerText = data.cpu_temp.toFixed(1);
             }
 
             // Accel

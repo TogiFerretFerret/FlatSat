@@ -30,8 +30,6 @@ print("[System] Reconfiguring Camera for Full Sensor Mode...")
 try:
     cam.picam2.stop()
     # FULL SENSOR RESOLUTION (Sony IMX708)
-    # 4608 x 2592 (16:9 Aspect Ratio)
-    # This is higher than 4K UHD.
     config = cam.picam2.create_video_configuration(
         main={"size": (1920, 1080), "format": "RGB888"}
     )
@@ -63,6 +61,15 @@ class HybridNode:
         except:
             return 0
 
+    def get_cpu_temp(self):
+        """Get Raspberry Pi CPU Temperature"""
+        try:
+            with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
+                # Value is in millidegrees (e.g., 45000 = 45.0C)
+                return float(f.read()) / 1000.0
+        except:
+            return 0.0
+
     def run_bt_server(self):
         """Dedicated Thread for Realtime Telemetry over Bluetooth"""
         print("[BT] Configuring Adapter...")
@@ -84,12 +91,15 @@ class HybridNode:
                     while self.running:
                         # 1. Get Sensor Data
                         data = imu.get_data() if imu else {"status": "no_imu"}
-                        data["rssi"] = self.get_rssi(addr[0])
                         
-                        # 2. Serialize
+                        # 2. Add Extra System Stats
+                        data["rssi"] = self.get_rssi(addr[0])
+                        data["cpu_temp"] = self.get_cpu_temp()
+                        
+                        # 3. Serialize
                         msg = json.dumps(data).encode('utf-8')
                         
-                        # 3. Send (Header + Body)
+                        # 4. Send (Header + Body)
                         header = struct.pack("!4sI", b"TELE", len(msg))
                         client.sendall(header + msg)
                         
@@ -148,7 +158,7 @@ if __name__ == "__main__":
     node = HybridNode()
     
     print("==============================================")
-    print(f"   HYBRID NODE ACTIVE (4608x2592)")
+    print(f"   HYBRID NODE ACTIVE (FHD)")
     print(f"   1. Bluetooth: Telemetry & Command Plane")
     print(f"   2. Wi-Fi: Video Data Plane (http://<PI_IP>:{HTTP_PORT}/stream)")
     print("==============================================")
