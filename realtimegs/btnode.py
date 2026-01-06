@@ -57,7 +57,11 @@ class BluetoothNode:
         """Sets up the RFCOMM Bluetooth Server."""
         try:
             self.server_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
-            self.server_sock.bind(("", 1)) # Bind to Port 1
+            
+            # FIXED: Use explicit BDADDR_ANY instead of empty string
+            # This fixes "bad bluetooth address" on newer Linux kernels
+            self.server_sock.bind(("00:00:00:00:00:00", 1)) 
+            
             self.server_sock.listen(1)
             
             print("[BT] Listening on RFCOMM Channel 1...")
@@ -92,7 +96,9 @@ class BluetoothNode:
             print(f"[BT] Send Error: {e}")
             # If send fails, assume client disconnected
             if self.client_sock:
-                self.client_sock.close()
+                try:
+                    self.client_sock.close()
+                except: pass
             self.client_sock = None
 
     def handle_client(self):
@@ -160,12 +166,8 @@ class BluetoothNode:
         # This is much faster for "Realtime" feel
         stream = io.BytesIO()
         
-        # We assume hardware/camera.py has a method to capture to a file-like object
-        # If using Picamera2 directly, capture_file works with streams too.
         try:
-            # If your camera class only accepts filenames, we might need to modify it,
-            # but usually they accept streams. If not, we fall back to file.
-            # Assuming Picamera2 native behavior:
+            # Picamera2 native capture to stream
             self.camera.picam2.capture_file(stream, format="jpeg")
             
             # Get the bytes
@@ -182,8 +184,12 @@ class BluetoothNode:
 
     def cleanup(self):
         self.running = False
-        if self.client_sock: self.client_sock.close()
-        if self.server_sock: self.server_sock.close()
+        if self.client_sock: 
+            try: self.client_sock.close()
+            except: pass
+        if self.server_sock: 
+            try: self.server_sock.close()
+            except: pass
         if self.camera: self.camera.stop()
 
 if __name__ == "__main__":
