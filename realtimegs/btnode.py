@@ -7,7 +7,7 @@ import os
 import io
 import sys
 import subprocess
-from flask import Flask, Response
+from flask import Flask, Response, send_file
 
 # --- HARDWARE IMPORTS ---
 try:
@@ -23,6 +23,23 @@ HTTP_PORT = 8000 # Video Stream Port
 # Initialize Global Hardware
 cam = CameraSystem()
 imu = IMU()
+cam_lock = threading.Lock() # Lock to prevent stream/snap collision
+
+# --- RECONFIGURE CAMERA FOR MAX RES (4.6K) ---
+print("[System] Reconfiguring Camera for Full Sensor Mode...")
+try:
+    cam.picam2.stop()
+    # FULL SENSOR RESOLUTION (Sony IMX708)
+    # 4608 x 2592 (16:9 Aspect Ratio)
+    # This is higher than 4K UHD.
+    config = cam.picam2.create_video_configuration(
+        main={"size": (4608, 2592), "format": "RGB888"}
+    )
+    cam.picam2.configure(config)
+    cam.picam2.start()
+    print("[System] Camera Active at 4608x2592 (4.6K).")
+except Exception as e:
+    print(f"[System] Camera Reconfig Failed: {e}")
 
 # Flask App for Video
 app = Flask(__name__)
@@ -42,7 +59,6 @@ class HybridNode:
         try:
             cmd = ["hcitool", "rssi", mac]
             res = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)
-            # Output format: "RSSI return value: -52"
             return int(res.decode().split(":")[1])
         except:
             return 0
@@ -55,7 +71,6 @@ class HybridNode:
 
         try:
             server_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
-            # Use '0.0.0.0' equivalent for Bluetooth to avoid "Bad Address" error
             server_sock.bind(("00:00:00:00:00:00", 1))
             server_sock.listen(1)
 
@@ -78,7 +93,7 @@ class HybridNode:
                         header = struct.pack("!4sI", b"TELE", len(msg))
                         client.sendall(header + msg)
                         
-                        # 20Hz Update Rate (Super smooth telemetry)
+                        # 20Hz Update Rate
                         time.sleep(0.05)
                         
                 except Exception as e:
@@ -86,7 +101,6 @@ class HybridNode:
                     if client: 
                         try: client.close()
                         except: pass
-                    # Wait a moment before accepting new connections
                     time.sleep(1)
         except Exception as e:
             print(f"[BT] Critical Server Error: {e}")
@@ -95,26 +109,19 @@ class HybridNode:
 
 @app.route('/stream')
 def stream():
-    """
-    High Bandwidth Video Stream over Wi-Fi.
-    Allows for 1080p or higher without choking Bluetooth.
-    """
+    """High Bandwidth Video Stream over Wi-Fi."""
     def generate():
         stream = io.BytesIO()
-        
-        # REMOVED: cam.picam2.set_controls({"JpegQuality": 50})
-        # Reason: JpegQuality is an encoder setting, not a sensor control, causing a crash.
-        # Default quality (approx 85-90) will be used, which is better for your dataset anyway.
-        
         while True:
             # Capture to RAM
-            cam.picam2.capture_file(stream, format="jpeg")
+            with cam_lock:
+                cam.picam2.capture_file(stream, format="jpeg")
             
             # Read the bytes
             stream.seek(0)
             frame = stream.read()
             
-            # Reset buffer for next frame
+            # Reset buffer
             stream.seek(0)
             stream.truncate()
             
@@ -127,14 +134,23 @@ def stream():
             
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+@app.route('/snapshot')
+def snapshot():
+    """Captures a SINGLE High-Res image."""
+    stream = io.BytesIO()
+    with cam_lock:
+        cam.picam2.capture_file(stream, format="jpeg")
+    
+    stream.seek(0)
+    return send_file(stream, mimetype='image/jpeg', download_name='snap.jpg')
+
 if __name__ == "__main__":
     node = HybridNode()
     
     print("==============================================")
-    print(f"   HYBRID NODE ACTIVE")
+    print(f"   HYBRID NODE ACTIVE (4608x2592)")
     print(f"   1. Bluetooth: Telemetry & Command Plane")
     print(f"   2. Wi-Fi: Video Data Plane (http://<PI_IP>:{HTTP_PORT}/stream)")
     print("==============================================")
     
-    # Run Flask (Blocks Main Thread)
     app.run(host='0.0.0.0', port=HTTP_PORT, threaded=True)
