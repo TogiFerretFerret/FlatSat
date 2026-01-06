@@ -102,13 +102,12 @@ def stream():
     def generate():
         stream = io.BytesIO()
         
-        # Set Quality ONCE to save CPU
-        # 50 is a sweet spot for Wi-Fi streaming (fast, good looking)
-        # You can crank this up to 80-90 if your Wi-Fi is strong.
-        cam.picam2.set_controls({"JpegQuality": 50})
+        # REMOVED: cam.picam2.set_controls({"JpegQuality": 50})
+        # Reason: JpegQuality is an encoder setting, not a sensor control, causing a crash.
+        # Default quality (approx 85-90) will be used, which is better for your dataset anyway.
         
         while True:
-            # Capture to RAM (Fixed: Removed invalid 'options' arg)
+            # Capture to RAM
             cam.picam2.capture_file(stream, format="jpeg")
             
             # Read the bytes
