@@ -22,6 +22,7 @@
             height: 100vh;
             display: flex;
             flex-direction: column;
+            box-sizing: border-box;
         }
         header {
             border-bottom: 2px solid var(--text-main);
@@ -35,9 +36,10 @@
         
         .grid-container {
             display: grid;
-            grid-template-columns: 2fr 1fr;
+            grid-template-columns: 3fr 1fr; /* Widescreen layout */
             gap: 20px;
             flex-grow: 1;
+            min-height: 0;
         }
         
         .panel {
@@ -82,6 +84,32 @@
             pointer-events: none;
         }
 
+        /* Snap Button */
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+        #snap-btn {
+            background: #008800; 
+            color: white; 
+            border: none; 
+            padding: 15px 30px; 
+            font-size: 1.1em; 
+            cursor: pointer;
+            border-radius: 4px;
+            width: 100%;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        #snap-btn:hover { background: #00aa00; }
+        #snap-btn:disabled { background: #444; cursor: wait; }
+
         /* Telemetry Stats */
         .stat-group { margin-bottom: 20px; }
         .stat-label { color: #888; font-size: 0.8rem; display: block; }
@@ -108,9 +136,10 @@
             color: #aaa;
             padding: 10px;
             font-size: 0.7rem;
-            height: 150px;
+            height: 100%;
             overflow-y: auto;
             border: 1px solid #333;
+            flex-grow: 1;
         }
 
         /* Status Indicator */
@@ -135,7 +164,7 @@
     <div class="grid-container">
         <!-- VIDEO PANEL (WIFI) -->
         <div class="panel">
-            <h2><i class="fas fa-eye"></i> OPTICAL FEED (WIFI)</h2>
+            <h2><i class="fas fa-eye"></i> FULL SENSOR OPTICAL FEED (4.6K)</h2>
             <div class="video-container">
                 <img id="video-feed" src="{{ video_url }}" 
                      onerror="this.style.display='none'; document.getElementById('vid-error').style.display='block'">
@@ -144,7 +173,14 @@
                     VIDEO SIGNAL LOST<br>
                     <small>Check Wi-Fi Connection to {{ video_url }}</small>
                 </div>
-                <div class="overlay-text">LIVE FEED</div>
+                <div class="overlay-text">LIVE 4608x2592</div>
+            </div>
+            
+            <div class="controls">
+                <button id="snap-btn" onclick="takeSnapshot()">
+                    <i class="fas fa-camera"></i> SNAP FULL RES
+                </button>
+                <div id="snap-status" style="color:#aaa; font-size:0.8em; min-height: 20px;"></div>
             </div>
         </div>
 
@@ -216,6 +252,35 @@
                 document.getElementById('pitch').innerText = data.orientation_euler.pitch.toFixed(0);
                 document.getElementById('yaw').innerText = data.orientation_euler.yaw.toFixed(0);
             }
+        }
+
+        async function takeSnapshot() {
+            const btn = document.getElementById('snap-btn');
+            const status = document.getElementById('snap-status');
+            
+            btn.disabled = true;
+            btn.style.background = "#555";
+            status.innerText = "Downloading High-Res Image...";
+            status.style.color = "#aaa";
+            
+            try {
+                const res = await fetch('/api/capture', {method: 'POST'});
+                const data = await res.json();
+                
+                if(data.status === 'success') {
+                    status.innerText = `Saved: ${data.file} (${(data.size/1024).toFixed(0)} KB)`;
+                    status.style.color = "#00ff41";
+                } else {
+                    status.innerText = "Error: " + data.message;
+                    status.style.color = "red";
+                }
+            } catch(e) {
+                status.innerText = "Network Error";
+                status.style.color = "red";
+            }
+            
+            btn.disabled = false;
+            btn.style.background = "#008800";
         }
 
         // Poll API every 100ms
