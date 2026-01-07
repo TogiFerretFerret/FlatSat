@@ -194,6 +194,7 @@
                 // res usually contains "1920x1080" when active, or "WAITING"/"ERR" when not.
                 if(d.cam_meta.res && d.cam_meta.res.includes('x')) {
                     document.getElementById('cam-res').innerText = d.cam_meta.res;
+                    document.getElementById('cam-res').style.color = "#fff"; // Reset color
                     
                     const fps = d.cam_meta.fps || 0;
                     document.getElementById('cam-fps').innerText = fps.toFixed(1) + " FPS";
@@ -218,8 +219,13 @@
                     const lens = d.cam_meta.lens || 0.0;
                     document.getElementById('cam-lens').innerText = `${lens.toFixed(2)} / ${st}`;
                 } else {
-                    // Fallback if data isn't ready
-                    document.getElementById('cam-res').innerText = d.cam_meta.res || "INIT";
+                    // Fallback if data isn't ready or errored
+                    let status = d.cam_meta.res || "INIT";
+                    if(d.cam_meta.error) {
+                        status = "ERR: " + d.cam_meta.error; // Show the actual error from Python
+                    }
+                    document.getElementById('cam-res').innerText = status;
+                    document.getElementById('cam-res').style.color = "red";
                 }
             }
 

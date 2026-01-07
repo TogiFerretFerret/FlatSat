@@ -206,11 +206,12 @@ class HybridNode:
                     if now - self.last_cam_activity > 0.2:
                         try:
                             # Capture to devnull basically, just to tick the ISP
-                            # We use a very small stream to keep it fast
                             with cam_lock:
                                 cam.picam2.capture_file(io.BytesIO(), format="jpeg")
                             self.last_cam_activity = now
-                        except: pass
+                        except Exception as e:
+                            # Log heartbeat error internally if needed, but don't spam
+                            pass
 
                     # 2. Gather Sensor Data
                     data = imu.get_data() if imu else {"status": "no_imu"}
@@ -249,8 +250,9 @@ class HybridNode:
                             }
                         else:
                             data["cam_meta"] = {"res": "WAITING"}
-                    except Exception: 
-                        data["cam_meta"] = {"res": "ERR"}
+                    except Exception as e: 
+                        # CRITICAL FIX: Send the actual error string to the dashboard
+                        data["cam_meta"] = {"res": "ERR", "error": str(e)}
                     
                     # 5. Transmit
                     data["rssi"] = self.get_rssi(addr[0])
@@ -275,9 +277,6 @@ class HybridNode:
 def stream():
     # Helper to signal activity to the heartbeat loop
     def signal_activity():
-        # Accessing global node instance is tricky here without passing it, 
-        # but the main loop updates last_cam_activity anyway if it runs.
-        # However, we update the timestamp here to prevent double-captures.
         if 'node' in globals():
             node.last_cam_activity = time.time()
 
