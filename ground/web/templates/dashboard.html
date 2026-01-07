@@ -7,45 +7,58 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         :root { --bg: #050505; --panel: #111; --border: #333; --text: #00ff41; --dim: #00661a; --warn: #ffcc00; --alert: #ff0000; }
-        body { background: var(--bg); color: var(--text); font-family: 'Consolas', 'Courier New', monospace; padding: 10px; margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; }
+        body { background: var(--bg); color: var(--text); font-family: 'Consolas', 'Courier New', monospace; padding: 5px; margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; }
         
-        header { display: flex; justify-content: space-between; border-bottom: 2px solid var(--text); margin-bottom: 10px; padding-bottom: 5px; }
-        .main-grid { display: grid; grid-template-columns: 260px 1fr 260px; grid-template-rows: 1fr auto; gap: 10px; flex-grow: 1; min-height: 0; }
-        .col { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+        /* Layout: 4 Columns now */
+        header { display: flex; justify-content: space-between; border-bottom: 2px solid var(--text); margin-bottom: 5px; padding-bottom: 2px; font-size: 0.9em; }
+        .main-grid { 
+            display: grid; 
+            /* Fixed Sidebars, Flexible Center */
+            grid-template-columns: 240px 1fr 240px 240px; 
+            grid-template-rows: 1fr; 
+            gap: 5px; 
+            flex-grow: 1; 
+            min-height: 0; 
+        }
+        .col { display: flex; flex-direction: column; gap: 5px; overflow-y: auto; }
         
-        .panel { background: var(--panel); border: 1px solid var(--border); padding: 8px; }
-        h2 { margin: 0 0 5px 0; font-size: 0.9em; color: #fff; border-bottom: 1px solid var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+        /* Components */
+        .panel { background: var(--panel); border: 1px solid var(--border); padding: 5px; }
+        h2 { margin: 0 0 3px 0; font-size: 0.8em; color: #fff; border-bottom: 1px solid var(--dim); text-transform: uppercase; letter-spacing: 1px; }
         
-        .data-row { display: flex; justify-content: space-between; font-size: 0.8em; margin-bottom: 3px; }
+        .data-row { display: flex; justify-content: space-between; font-size: 0.75em; margin-bottom: 2px; }
         .data-val { font-weight: bold; color: #fff; }
         
-        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px; text-align: center; margin-bottom: 5px; }
-        .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 2px; text-align: center; margin-bottom: 5px; }
-        .sensor-box { background: #000; border: 1px solid var(--border); padding: 3px; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px; text-align: center; margin-bottom: 2px; }
+        .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 2px; text-align: center; margin-bottom: 2px; }
+        .sensor-box { background: #000; border: 1px solid var(--border); padding: 2px; }
         .lbl { display: block; font-size: 0.6em; color: #888; }
-        .val { font-size: 0.9em; font-weight: bold; }
+        .val { font-size: 0.8em; font-weight: bold; }
 
-        .vid-container { flex-grow: 1; background: #000; border: 1px solid var(--border); position: relative; display: flex; align-items: center; justify-content: center; }
-        img.live-feed { max-width: 100%; max-height: 100%; }
-        .overlay { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 5px; font-size: 0.8em; border: 1px solid var(--dim); }
+        /* Video */
+        .vid-container { flex-grow: 1; background: #000; border: 1px solid var(--border); position: relative; display: flex; align-items: center; justify-content: center; min-height: 0; }
+        img.live-feed { max-width: 100%; max-height: 100%; object-fit: contain; }
+        .overlay { position: absolute; top: 5px; left: 5px; background: rgba(0,0,0,0.7); padding: 3px; font-size: 0.7em; border: 1px solid var(--dim); }
 
-        .bar-bg { width: 100%; height: 6px; background: #222; margin-top: 2px; }
+        /* Bars */
+        .bar-bg { width: 100%; height: 4px; background: #222; margin-top: 1px; margin-bottom: 3px; }
         .bar-fill { height: 100%; background: var(--text); width: 0%; transition: width 0.2s; }
         .bar-warn { background: var(--warn); }
         .bar-alert { background: var(--alert); }
-        .badge { display: inline-block; padding: 2px 6px; border-radius: 2px; font-size: 0.7em; margin-right: 2px; background: #222; color: #888; }
+        .badge { display: inline-block; padding: 1px 4px; border-radius: 2px; font-size: 0.65em; margin-right: 2px; background: #222; color: #888; }
         .badge.active { background: var(--alert); color: #fff; font-weight: bold; }
 
-        .btn { background: var(--panel); border: 1px solid var(--text); color: var(--text); width: 100%; padding: 10px; cursor: pointer; font-weight: bold; margin-top: 5px; }
+        .btn { background: var(--panel); border: 1px solid var(--text); color: var(--text); width: 100%; padding: 8px; cursor: pointer; font-weight: bold; margin-top: 2px; font-size: 0.8em; }
         .btn:hover { background: var(--dim); color: #fff; }
         
         table { width: 100%; border-collapse: collapse; font-size: 0.7em; }
         th { text-align: left; color: #888; border-bottom: 1px solid #333; }
-        td { padding: 2px 0; }
+        td { padding: 1px 0; }
         .high-cpu { color: var(--warn); }
 
-        .gallery-panel { grid-column: 1 / -1; height: 120px; display: flex; flex-direction: column; overflow: hidden; }
-        .gallery-strip { flex-grow: 1; display: flex; gap: 8px; overflow-x: auto; padding: 5px; background: #080808; border-top: 1px solid #333; align-items: center; }
+        /* Gallery - Now vertical compact or horizontal strip under video */
+        .gallery-panel { height: 100px; display: flex; flex-direction: column; overflow: hidden; margin-top: 5px; }
+        .gallery-strip { flex-grow: 1; display: flex; gap: 5px; overflow-x: auto; padding: 2px; background: #080808; border-top: 1px solid #333; align-items: center; }
         .thumb { height: 100%; border: 1px solid #444; cursor: pointer; transition: transform 0.1s, border-color 0.1s; aspect-ratio: 16/9; object-fit: cover; }
         .thumb:hover { transform: scale(1.05); border-color: var(--text); }
 
@@ -61,10 +74,10 @@
     </header>
 
     <div class="main-grid">
-        <!-- LEFT COLUMN: DYNAMICS -->
+        <!-- COL 1: DYNAMICS -->
         <div class="col">
             <div class="panel">
-                <h2>Attitude & Motion</h2>
+                <h2>Attitude</h2>
                 <div class="data-row"><span>HEADING</span><span class="data-val" id="att-yaw">0°</span></div>
                 <div class="data-row"><span>PITCH</span><span class="data-val" id="att-pitch">0°</span></div>
                 <div class="data-row"><span>ROLL</span><span class="data-val" id="att-roll">0°</span></div>
@@ -112,16 +125,21 @@
             </div>
         </div>
 
-        <!-- MIDDLE: OPTICAL -->
-        <div class="col">
+        <!-- COL 2: OPTICAL -->
+        <div class="col" style="min-width: 0;">
             <div class="vid-container">
                 <img class="live-feed" src="/stream" onerror="this.style.display='none'">
                 <div class="overlay">LIVE OPTICAL FEED [1080p]</div>
             </div>
             <button class="btn" onclick="snap()">ACQUIRE HIGH-RES TARGET (4.6K)</button>
+            
+            <div class="panel gallery-panel">
+                <h2>Mission Gallery</h2>
+                <div id="gallery" class="gallery-strip"></div>
+            </div>
         </div>
 
-        <!-- RIGHT: SYSTEMS -->
+        <!-- COL 3: MISSION SYSTEMS -->
         <div class="col">
             <div class="panel">
                 <h2>Health & Power</h2>
@@ -156,21 +174,24 @@
                 <div class="data-row"><span>BT RSSI</span><span class="data-val" id="bt-rssi">0 dBm</span></div>
                 <div class="data-row"><span>IP ADDR</span><span class="data-val" id="ip-addr">--</span></div>
             </div>
+        </div>
 
+        <!-- COL 4: DIAGNOSTICS & EXPANSION -->
+        <div class="col">
             <div class="panel">
                 <h2>Thermals & Load</h2>
                 <div class="data-row"><span>CPU LOAD</span><span class="data-val" id="cpu-load">0%</span></div>
                 <div class="bar-bg"><div id="bar-load" class="bar-fill" style="width:0%"></div></div>
-                <div class="data-row" style="margin-top:2px;"><span>CPU TEMP</span><span class="data-val" id="cpu-temp">0C</span></div>
+                <div class="data-row"><span>CPU TEMP</span><span class="data-val" id="cpu-temp">0C</span></div>
                 <div class="bar-bg"><div id="bar-temp" class="bar-fill" style="width:0%"></div></div>
-                <div class="data-row" style="margin-top:2px;"><span>IMU TEMP</span><span class="data-val" id="imu-temp">0C</span></div>
+                <div class="data-row"><span>IMU TEMP</span><span class="data-val" id="imu-temp">0C</span></div>
             </div>
 
             <div class="panel">
                 <h2>Memory & Storage</h2>
                 <div class="data-row"><span>RAM USE</span><span class="data-val" id="ram-use">0 / 0 MB</span></div>
                 <div class="bar-bg"><div id="bar-ram" class="bar-fill" style="width:0%"></div></div>
-                <div class="data-row" style="margin-top:5px;"><span>GPU MEM</span><span class="data-val" id="gpu-mem">0M</span></div>
+                <div class="data-row"><span>GPU MEM</span><span class="data-val" id="gpu-mem">0M</span></div>
                 <div class="data-row" style="margin-top:2px;"><span>DISK USE</span><span class="data-val" id="disk-use">0 / 0 GB</span></div>
                 <div class="bar-bg"><div id="bar-disk" class="bar-fill" style="width:0%"></div></div>
             </div>
@@ -180,14 +201,10 @@
                 <table><thead><tr><th>PID</th><th>NAME</th><th>CPU</th></tr></thead><tbody id="proc-list"></tbody></table>
             </div>
 
-            <div class="panel" style="margin-top: 10px;">
-               <div class="data-row"><span>UPTIME</span><span class="data-val" id="uptime">0s</span></div>
+            <div class="panel">
+                <h2>System</h2>
+                <div class="data-row"><span>UPTIME</span><span class="data-val" id="uptime">0s</span></div>
             </div>
-        </div>
-
-        <div class="panel gallery-panel">
-            <h2>Mission Gallery</h2>
-            <div id="gallery" class="gallery-strip"></div>
         </div>
     </div>
 
