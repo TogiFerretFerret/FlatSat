@@ -210,7 +210,6 @@ class HybridNode:
                                 cam.picam2.capture_file(io.BytesIO(), format="jpeg")
                             self.last_cam_activity = now
                         except Exception as e:
-                            # Log heartbeat error internally if needed, but don't spam
                             pass
 
                     # 2. Gather Sensor Data
@@ -229,7 +228,8 @@ class HybridNode:
                     
                     # 4. Dynamic Camera Metadata
                     try:
-                        meta = cam.picam2.metadata
+                        # FIX: Use function call capture_metadata() instead of property
+                        meta = cam.picam2.capture_metadata()
                         if meta:
                             frame_dur = meta.get("FrameDuration", 33333)
                             fps = 1000000.0 / frame_dur if frame_dur > 0 else 0
