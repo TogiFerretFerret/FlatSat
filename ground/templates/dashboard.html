@@ -251,6 +251,10 @@
                         <div class="axis-box"><span class="axis-name">RAM</span><br><span id="sys-mem">0</span>%</div>
                         <div class="axis-box"><span class="axis-name">DISK</span><br><span id="sys-disk">0</span>%</div>
                     </div>
+                    <div class="axis-grid" style="grid-template-columns: 1fr 1fr;">
+                        <div class="axis-box"><span class="axis-name">VOLTS</span><br><span id="sys-volts">0.00</span>V</div>
+                        <div class="axis-box"><span class="axis-name">CLOCK</span><br><span id="sys-clock">0</span>MHz</div>
+                    </div>
                     <div class="badge" style="margin-top:4px;">
                         <span style="color:#888;">UPTIME</span>
                         <span id="sys-uptime" style="color:#fff;">00:00:00</span>
@@ -312,6 +316,15 @@
                     </div>
                 </div>
 
+                <div class="stat-group">
+                    <span class="stat-label">ORIENTATION (EULER)</span>
+                    <div class="axis-grid">
+                        <div class="axis-box"><span class="axis-name">ROLL</span><br><span id="roll">0</span>°</div>
+                        <div class="axis-box"><span class="axis-name">PITCH</span><br><span id="pitch">0</span>°</div>
+                        <div class="axis-box"><span class="axis-name">YAW</span><br><span id="yaw">0</span>°</div>
+                    </div>
+                </div>
+
                 <span class="stat-label">RAW TELEMETRY</span>
                 <pre id="tel-raw">Waiting for packets...</pre>
             </div>
@@ -362,6 +375,8 @@
             if (data.mem_percent !== undefined) document.getElementById('sys-mem').innerText = data.mem_percent;
             if (data.disk_percent !== undefined) document.getElementById('sys-disk').innerText = data.disk_percent;
             if (data.uptime !== undefined) document.getElementById('sys-uptime').innerText = formatTime(data.uptime);
+            if (data.voltage !== undefined) document.getElementById('sys-volts').innerText = data.voltage.toFixed(2);
+            if (data.clock_mhz !== undefined) document.getElementById('sys-clock').innerText = data.clock_mhz;
             
             // Throttle Status
             if (data.throttled !== undefined) {
@@ -406,6 +421,13 @@
                 document.getElementById('qx').innerText = data.quaternion[1].toFixed(3);
                 document.getElementById('qy').innerText = data.quaternion[2].toFixed(3);
                 document.getElementById('qz').innerText = data.quaternion[3].toFixed(3);
+            }
+
+            // Orientation
+            if (data.orientation_euler) {
+                document.getElementById('roll').innerText = data.orientation_euler.roll.toFixed(0);
+                document.getElementById('pitch').innerText = data.orientation_euler.pitch.toFixed(0);
+                document.getElementById('yaw').innerText = data.orientation_euler.yaw.toFixed(0);
             }
         }
 

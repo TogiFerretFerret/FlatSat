@@ -49,11 +49,11 @@ class HybridNode:
     def __init__(self):
         self.running = True
         
-        # State Cache (Prevents slow subprocess calls from blocking the loop)
+        # State Cache
         self.cached_stats = {
             "cpu_temp": 0, "cpu_load": 0, "mem_percent": 0, 
             "disk_percent": 0, "uptime": 0, "wifi_signal": 0, 
-            "throttled": "0x0"
+            "throttled": "0x0", "voltage": 0, "clock_mhz": 0
         }
         self.last_stats_time = 0
         
@@ -65,10 +65,8 @@ class HybridNode:
         self.bt_thread.start()
 
     def get_rssi(self, mac):
-        """Get Bluetooth Signal Strength (Cached every 2s)"""
         if time.time() - self.last_rssi_time < 2.0:
             return self.cached_rssi
-            
         try:
             cmd = ["hcitool", "rssi", mac]
             res = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)
@@ -80,49 +78,48 @@ class HybridNode:
             return self.cached_rssi
 
     def get_system_stats(self):
-        """Gather CPU, RAM, Disk, Uptime, WiFi, and Throttling (Cached every 2s)"""
+        """Gather System Vitals (Cached every 2s)"""
         if time.time() - self.last_stats_time < 2.0:
             return self.cached_stats
 
         stats = self.cached_stats.copy()
         try:
-            # 1. CPU Temp
+            # Basic Stats
             with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
                 stats["cpu_temp"] = float(f.read()) / 1000.0
             
-            # 2. CPU Load
             cpu_count = os.cpu_count() or 1
             stats["cpu_load"] = round(os.getloadavg()[0] * 100 / cpu_count, 1)
             
-            # 3. Memory
             with open("/proc/meminfo", "r") as f:
                 lines = f.readlines()
                 total = int(lines[0].split()[1])
                 available = int(lines[2].split()[1])
                 stats["mem_percent"] = round((1 - available/total) * 100, 1)
 
-            # 4. Disk Usage
             st = os.statvfs('/')
             total = st.f_blocks * st.f_frsize
             free = st.f_bavail * st.f_frsize
             stats["disk_percent"] = round((1 - free/total) * 100, 1)
             
-            # 5. Uptime (New)
             with open("/proc/uptime", "r") as f:
                 stats["uptime"] = int(float(f.read().split()[0]))
 
-            # 6. Wi-Fi Signal (New)
             with open("/proc/net/wireless", "r") as f:
                 for line in f:
                     if "wlan" in line:
-                        # Field 3 represents level in dBm usually (e.g. -67.)
                         stats["wifi_signal"] = int(float(line.split()[3]))
                         break
 
-            # 7. Throttling Status (New)
-            # Checks for under-voltage or overheating flags
+            # Advanced Vitals (Voltage/Clock/Throttle)
             res = subprocess.check_output(["vcgencmd", "get_throttled"], stderr=subprocess.DEVNULL)
             stats["throttled"] = res.decode().strip().split('=')[1]
+
+            res = subprocess.check_output(["vcgencmd", "measure_volts", "core"], stderr=subprocess.DEVNULL)
+            stats["voltage"] = float(res.decode().strip().split('=')[1].replace('V', ''))
+
+            res = subprocess.check_output(["vcgencmd", "measure_clock", "arm"], stderr=subprocess.DEVNULL)
+            stats["clock_mhz"] = int(res.decode().strip().split('=')[1]) // 1000000
             
         except Exception:
             pass
@@ -147,15 +144,11 @@ class HybridNode:
                     client, addr = server_sock.accept()
                     print(f"[BT] Connected: {addr}")
                     while self.running:
-                        # 1. Base Sensor Data
                         data = imu.get_data() if imu else {"status": "no_imu"}
-                        
-                        # 2. Add System Stats & RSSI
                         sys_stats = self.get_system_stats()
                         data.update(sys_stats)
                         data["rssi"] = self.get_rssi(addr[0])
                         
-                        # 3. Send
                         msg = json.dumps(data).encode('utf-8')
                         header = struct.pack("!4sI", b"TELE", len(msg))
                         client.sendall(header + msg)
@@ -163,15 +156,13 @@ class HybridNode:
                 except Exception as e:
                     print(f"[BT] Disconnected: {e}")
                     if client:
-                        try: 
-                            client.close()
-                        except: 
-                            pass
+                        try: client.close()
+                        except: pass
                     time.sleep(1)
         except Exception as e:
             print(f"[BT] Server Error: {e}")
 
-# --- FLASK ROUTES (Unchanged) ---
+# --- FLASK ROUTES ---
 @app.route('/stream')
 def stream():
     def generate():
