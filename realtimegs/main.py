@@ -61,10 +61,11 @@ class PositionTracker:
         world_a = rotate_vector_by_quaternion(current_accel, current_quat)
         
         # Tare: Capture gravity + bias at the start
+        # NOTE: IMU data is already in m/s^2. No multiplier needed.
         self.world_bias = {
-            "x": world_a["x"] * 9.81,
-            "y": world_a["y"] * 9.81,
-            "z": world_a["z"] * 9.81
+            "x": world_a["x"],
+            "y": world_a["y"],
+            "z": world_a["z"]
         }
         
         self.pos = {"x": 0.0, "y": 0.0, "z": 0.0}
@@ -87,30 +88,30 @@ class PositionTracker:
         # 1. Rotate to World Frame
         world_raw = rotate_vector_by_quaternion(curr_accel, curr_quat)
         
-        # 2. Convert to m/s^2 & Remove Bias
-        ax = (world_raw["x"] * 9.81) - self.world_bias["x"]
-        ay = (world_raw["y"] * 9.81) - self.world_bias["y"]
-        az = (world_raw["z"] * 9.81) - self.world_bias["z"]
+        # 2. Remove Bias (Units are already m/s^2)
+        ax = world_raw["x"] - self.world_bias["x"]
+        ay = world_raw["y"] - self.world_bias["y"]
+        az = world_raw["z"] - self.world_bias["z"]
 
-        # 3. Smart Deadband & Friction (THE FIX)
-        # If acceleration is tiny (noise), kill velocity so position stops drift.
-        threshold = 0.25 # Slightly higher threshold for stability
+        # 3. Smart Deadband & Zero Velocity Update (ZUPT)
+        # If acceleration is below noise floor, assume stopped.
+        threshold = 0.3 # m/s^2
         
         if abs(ax) < threshold: 
             ax = 0
-            self.vel["x"] *= 0.85 # Strong friction when stopped
+            self.vel["x"] = 0 # Force Zero Velocity
         else:
             self.vel["x"] *= 0.99 # Tiny air resistance when moving
 
         if abs(ay) < threshold: 
             ay = 0
-            self.vel["y"] *= 0.85
+            self.vel["y"] = 0
         else:
             self.vel["y"] *= 0.99
 
         if abs(az) < threshold: 
             az = 0
-            self.vel["z"] *= 0.85 
+            self.vel["z"] = 0
         else:
             self.vel["z"] *= 0.99
 
