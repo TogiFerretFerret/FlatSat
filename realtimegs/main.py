@@ -28,10 +28,7 @@ cam_lock = threading.Lock()
 
 # --- PHYSICS ENGINE ---
 def rotate_vector_by_quaternion(v, q):
-    """
-    Rotates vector v (x,y,z) by quaternion q (w,x,y,z).
-    Returns rotated vector [x, y, z].
-    """
+    """ Rotates vector v (x,y,z) by quaternion q (w,x,y,z) into World Frame. """
     vx, vy, vz = v['x'], v['y'], v['z']
     qw, qx, qy, qz = q[0], q[1], q[2], q[3]
 
@@ -60,8 +57,7 @@ class PositionTracker:
     def start(self, current_accel, current_quat):
         world_a = rotate_vector_by_quaternion(current_accel, current_quat)
         
-        # Tare: Capture gravity + bias at the start
-        # NOTE: IMU data is already in m/s^2. No multiplier needed.
+        # Tare: Capture current gravity vector in World Frame as the bias
         self.world_bias = {
             "x": world_a["x"],
             "y": world_a["y"],
@@ -72,11 +68,11 @@ class PositionTracker:
         self.vel = {"x": 0.0, "y": 0.0, "z": 0.0}
         self.last_time = time.time()
         self.active = True
-        print(f"[Physics] Tracking Started. World Bias: {self.world_bias}")
+        print(f"[Physics] Tracking STARTED. World Bias: {self.world_bias}")
 
     def stop(self):
         self.active = False
-        print("[Physics] Tracking Stopped.")
+        print("[Physics] Tracking STOPPED.")
 
     def update(self, curr_accel, curr_quat):
         if not self.active: return
@@ -88,32 +84,33 @@ class PositionTracker:
         # 1. Rotate to World Frame
         world_raw = rotate_vector_by_quaternion(curr_accel, curr_quat)
         
-        # 2. Remove Bias (Units are already m/s^2)
+        # 2. Remove Bias (Units are m/s^2)
         ax = world_raw["x"] - self.world_bias["x"]
         ay = world_raw["y"] - self.world_bias["y"]
         az = world_raw["z"] - self.world_bias["z"]
 
-        # 3. Smart Deadband & Zero Velocity Update (ZUPT)
-        # If acceleration is below noise floor, assume stopped.
-        threshold = 0.3 # m/s^2
+        # 3. ZUPT (Zero Velocity Update) & Deadband
+        # If acceleration is small (noise), snap velocity to 0 to prevent drift.
+        # Increased threshold to 0.5 for stability.
+        threshold = 0.5 
         
         if abs(ax) < threshold: 
             ax = 0
-            self.vel["x"] = 0 # Force Zero Velocity
+            self.vel["x"] = 0 
         else:
-            self.vel["x"] *= 0.99 # Tiny air resistance when moving
+            self.vel["x"] *= 0.98 # Friction
 
         if abs(ay) < threshold: 
             ay = 0
             self.vel["y"] = 0
         else:
-            self.vel["y"] *= 0.99
+            self.vel["y"] *= 0.98
 
         if abs(az) < threshold: 
             az = 0
             self.vel["z"] = 0
         else:
-            self.vel["z"] *= 0.99
+            self.vel["z"] *= 0.98
 
         # 4. Integrate: Accel -> Velocity
         self.vel["x"] += ax * dt
@@ -138,10 +135,12 @@ def configure_camera(width, height):
         )
         cam.picam2.configure(config)
         cam.picam2.start()
+        print(f"[System] Camera Active at {width}x{height}.")
     except Exception as e:
         print(f"[System] Camera Config Failed: {e}")
 
-configure_camera(1920, 1080) # Startup at 1080p
+# FORCE 1080p STARTUP
+configure_camera(1920, 1080)
 
 app = Flask(__name__)
 
@@ -282,6 +281,8 @@ class HybridNode:
                     payload += chunk
                 
                 cmd = type_bytes.decode('utf-8').strip()
+                print(f"[BT] Received Command: {cmd}")
+                
                 if cmd == "TRK+":
                     data = imu.get_data()
                     if data["status"] == "ONLINE":
@@ -293,6 +294,7 @@ class HybridNode:
 # --- FLASK ROUTES ---
 @app.route('/stream')
 def stream():
+    """ 1080p Stream for Aiming """
     def generate():
         stream = io.BytesIO()
         while True:
@@ -308,12 +310,14 @@ def stream():
 
 @app.route('/snapshot')
 def snapshot():
+    """ 4.6K Snapshot then reverts to 1080p """
     stream = io.BytesIO()
     with cam_lock:
-        print("[Snap] 4.6K...")
+        print("[Snap] Switching to 4.6K...")
         configure_camera(4608, 2592)
         cam.picam2.capture_file(stream, format="jpeg")
-        print("[Snap] Reverting...")
+        
+        print("[Snap] Reverting to 1080p...")
         configure_camera(1920, 1080)
     stream.seek(0)
     return send_file(stream, mimetype='image/jpeg', download_name='snap.jpg')

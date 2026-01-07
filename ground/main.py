@@ -63,10 +63,12 @@ def bt_client_thread():
 
                 # 3. Update State
                 try:
-                    data = json.loads(payload.decode('utf-8'))
-                    data["status"] = "ONLINE"
+                    new_data = json.loads(payload.decode('utf-8'))
+                    new_data["status"] = "ONLINE"
+                    
                     with lock:
-                        telemetry_data = data
+                        # Merge to preserve fields if packet is partial (rare but safer)
+                        telemetry_data.update(new_data)
                 except json.JSONDecodeError:
                     pass
                     
@@ -88,12 +90,11 @@ def send_bt_command(cmd_str):
     with lock:
         if bt_sock:
             try:
-                # Type=CMD (4 bytes), Length=0. We encode command in the Type field for simplicity if length is 4
-                # But safer to send as payload if length > 4.
-                # Here we use the Type field for the Command itself if it's 4 chars (e.g. "TRK+")
+                # Packet Format: [CMD (4s)] [LEN (I)]
+                # We send the command itself in the "Type" field for 4-char commands
                 pkt = struct.pack("!4sI", cmd_str.encode('utf-8'), 0)
                 bt_sock.sendall(pkt)
-                print(f"[GS] Sent: {cmd_str}")
+                print(f"[GS] Sent Command: {cmd_str}")
                 return True
             except Exception as e:
                 print(f"[GS] Send Error: {e}")
@@ -108,6 +109,7 @@ def index():
 @app.route('/proxy_video')
 def proxy_video():
     """Proxies MJPEG stream from Pi to Browser (Works over Tailscale)"""
+    # Force 1080p stream from Pi
     pi_stream_url = f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/stream"
     try:
         req = requests.get(pi_stream_url, stream=True, timeout=3)
@@ -128,8 +130,10 @@ def api_telemetry():
 def api_track():
     action = request.json.get('action')
     if action == 'start':
+        print("[GS] Requesting Tracking START")
         send_bt_command("TRK+")
     elif action == 'stop':
+        print("[GS] Requesting Tracking STOP")
         send_bt_command("TRK-")
     return jsonify({"status": "ok"})
 
@@ -137,7 +141,9 @@ def api_track():
 def capture_image():
     """Downloads high-res image from Pi and saves UNIQUE file"""
     try:
+        # Note: This endpoint triggers the 4.6K capture on the Pi
         url = f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/snapshot"
+        print(f"[GS] Requesting Snapshot from {url}")
         resp = requests.get(url, timeout=15)
         
         if resp.status_code == 200:
@@ -147,12 +153,14 @@ def capture_image():
             
             with open(filepath, 'wb') as f:
                 f.write(resp.content)
-                
+            
+            print(f"[GS] Saved {filename}")
             return jsonify({"status": "success", "file": filename})
         else:
             return jsonify({"status": "error", "message": "Pi Error"}), 500
             
     except Exception as e:
+        print(f"[GS] Snapshot Failed: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/captures')
