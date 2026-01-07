@@ -115,7 +115,7 @@
         <!-- MIDDLE: OPTICAL -->
         <div class="col">
             <div class="vid-container">
-                <img src="/proxy_video" onerror="this.style.display='none'">
+                <img src="/stream" onerror="this.style.display='none'">
                 <div class="overlay">LIVE OPTICAL FEED [1080p]</div>
             </div>
             <button class="btn" onclick="snap()">ACQUIRE HIGH-RES TARGET (4.6K)</button>
@@ -197,7 +197,6 @@
     </div>
 
     <script>
-        // Optimization: Cache DOM elements to prevent repeated lookups
         const ui = {
             conn: document.getElementById('conn-status'),
             // Sensors
@@ -221,7 +220,7 @@
             net_rx: document.getElementById('net-rx'), net_tx: document.getElementById('net-tx'),
             wifi_rssi: document.getElementById('wifi-rssi'), wifi_retry: document.getElementById('wifi-retry'), wifi_missed: document.getElementById('wifi-missed'),
             bt_rssi: document.getElementById('bt-rssi'), uptime: document.getElementById('uptime'),
-            // Text Elements for Bars/Lists
+            // Text Elements
             cpu_temp_txt: document.getElementById('cpu-temp'), cpu_load_txt: document.getElementById('cpu-load'),
             ram_use_txt: document.getElementById('ram-use'), disk_use_txt: document.getElementById('disk-use'),
             proc_list: document.getElementById('proc-list')
@@ -231,7 +230,6 @@
             ui.conn.innerText = d.status || "OFFLINE";
             ui.conn.style.color = (d.status === "ONLINE") ? "#00ff41" : "red";
 
-            // SENSORS
             if(d.accel) {
                 ui.ax.innerText = d.accel.x.toFixed(2);
                 ui.ay.innerText = d.accel.y.toFixed(2);
@@ -248,7 +246,6 @@
                 ui.mz.innerText = d.mag.z.toFixed(0);
             }
             
-            // Quaternions
             if(d.quaternion) {
                 ui.qw.innerText = d.quaternion[0] !== undefined ? d.quaternion[0].toFixed(3) : "0.00";
                 ui.qx.innerText = d.quaternion[1] !== undefined ? d.quaternion[1].toFixed(3) : "0.00";
@@ -264,25 +261,19 @@
             if(d.total_g) ui.total_g.innerText = d.total_g;
             if(d.jerk !== undefined) ui.jerk.innerText = d.jerk.toFixed(1);
 
-            // Camera Metadata
             if(d.cam_meta) {
                 if(d.cam_meta.res && d.cam_meta.res.includes('x')) {
                     ui.cam_res.innerText = d.cam_meta.res;
                     ui.cam_res.style.color = "#fff";
-                    
                     ui.cam_fps.innerText = (d.cam_meta.fps || 0).toFixed(1) + " FPS";
-                    
                     const exp = d.cam_meta.exp_ms || 0;
                     ui.cam_exp.innerText = exp.toFixed(1) + " ms";
                     ui.cam_exp.style.color = (exp > 30) ? "#ffcc00" : "#fff";
-                    
                     ui.cam_gain.innerText = (d.cam_meta.a_gain || 1).toFixed(2) + "x";
                     ui.cam_dgain.innerText = (d.cam_meta.d_gain || 1).toFixed(2) + "x";
-                    
                     const awb_r = d.cam_meta.awb_r || 0;
                     const awb_b = d.cam_meta.awb_b || 0;
                     ui.cam_awb.innerText = `R:${awb_r.toFixed(2)} B:${awb_b.toFixed(2)}`;
-                    
                     const states = ["IDLE", "SCAN", "LOCKED", "FAIL"];
                     const af_idx = d.cam_meta.af_state || 0;
                     const st = states[af_idx] || "UNKNOWN";
@@ -296,7 +287,6 @@
                 }
             }
 
-            // SYSTEMS
             if(d.sys) {
                 const s = d.sys;
                 ui.cpu_volts.innerText = s.cpu_volts ? s.cpu_volts.toFixed(2) + " V" : "--";
@@ -307,7 +297,6 @@
                 ui.imu_temp.innerText = (s.imu_temp || 0) + "°C";
                 ui.ip_addr.innerText = s.ip_addr || "--";
 
-                // Health Badges
                 if (s.throttle_flags) {
                     const flags = s.throttle_flags;
                     const setBadge = (id, match) => {
@@ -321,7 +310,6 @@
                     setBadge('flag-temp', 'SOFT_TEMP');
                 }
 
-                // Network
                 ui.net_rx.innerText = (s.rx_kbps || 0).toFixed(1) + " KB/s";
                 ui.net_tx.innerText = (s.tx_kbps || 0).toFixed(1) + " KB/s";
                 ui.wifi_rssi.innerText = (s.wifi_dbm || 0) + " dBm";
@@ -345,7 +333,6 @@
                 
                 ui.uptime.innerText = new Date(s.uptime_script * 1000).toISOString().substr(11, 8);
 
-                // Optimization: Batch HTML update to prevent reflow trashing
                 if (s.processes) {
                     let html = "";
                     s.processes.forEach(p => {
@@ -373,34 +360,30 @@
         }
 
         async function snap() {
-            await fetch('/api/capture', {method:'POST'});
+            await fetch('/snapshot', {method:'POST'});
             loadGal();
         }
 
         async function loadGal() {
-            try {
-                let res = await fetch('/api/captures');
-                let files = await res.json();
-                let g = document.getElementById('gallery');
-                g.innerHTML = "";
-                files.forEach(f => {
-                    let i = document.createElement('img');
-                    i.src = "/captures/"+f;
-                    i.style.height = "100%";
-                    i.style.border = "1px solid #444";
-                    i.onclick = () => window.open(i.src);
-                    g.appendChild(i);
-                });
-            } catch(e) {}
+            // Placeholder: Gallery loading logic can be added here
         }
 
-        // Optimization: Reduced poll rate to 4Hz (250ms) to save CPU cycle and prevent browser lag
-        setInterval(async () => { 
-            try { 
-                let res = await fetch('/api/telemetry'); 
-                updateDisplay(await res.json()); 
-            } catch {} 
-        }, 250);
+        // --- SSE CONNECTION ---
+        const evtSource = new EventSource("/telemetry_stream");
+        
+        evtSource.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                updateDisplay(data);
+            } catch(e) {
+                console.error("SSE Parse Error", e);
+            }
+        };
+
+        evtSource.onerror = function() {
+            ui.conn.innerText = "RECONNECTING...";
+            ui.conn.style.color = "orange";
+        };
         
         loadGal();
     </script>
