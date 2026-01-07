@@ -122,41 +122,48 @@ class PositionTracker:
             self.calibration_sum["y"] += world_raw["y"]
             self.calibration_sum["z"] += world_raw["z"]
             self.calibration_samples += 1
-            # We no longer auto-stop. User must send stop command.
             return 
 
         if not self.active: return
 
         # --- 4. PHYSICS INTEGRATION ---
+        # Calculate dynamic acceleration (movement) by removing the trained bias (gravity/offset)
         ax = world_raw["x"] - self.world_bias["x"]
         ay = world_raw["y"] - self.world_bias["y"]
         az = world_raw["z"] - self.world_bias["z"]
 
-        # Deadband & Friction
-        THRESHOLD = 0.15
-        FRICTION = 0.99
-        ZUPT_FRICTION = 0.8 # Rapid stop if input is noise
+        # --- CRITICAL FIX: MAGNITUDE-BASED ZUPT ---
+        # Calculate total movement intensity
+        dynamic_mag = math.sqrt(ax**2 + ay**2 + az**2)
+        
+        # Threshold: 0.35 m/s^2. 
+        # If total acceleration is less than this, we assume we are stationary.
+        # This prevents "gravity leak" (0.1 - 0.2 m/s^2) from integrating into infinity.
+        THRESHOLD = 0.35 
+        
+        # Friction: 0.95.
+        # Constant drag prevents velocity from exploding if a bias persists.
+        FRICTION = 0.95 
 
-        if abs(ax) < THRESHOLD: 
-            ax = 0
-            self.vel["x"] *= ZUPT_FRICTION
-        else: self.vel["x"] *= FRICTION
+        if dynamic_mag < THRESHOLD:
+            # We are likely still. Kill velocity immediately.
+            self.vel = {"x": 0.0, "y": 0.0, "z": 0.0}
+            ax, ay, az = 0, 0, 0
+        else:
+            # We are moving. Integrate.
+            pass
 
-        if abs(ay) < THRESHOLD: 
-            ay = 0
-            self.vel["y"] *= ZUPT_FRICTION
-        else: self.vel["y"] *= FRICTION
-
-        if abs(az) < THRESHOLD: 
-            az = 0
-            self.vel["z"] *= ZUPT_FRICTION
-        else: self.vel["z"] *= FRICTION
-
-        # Integrate
+        # Integrate Accel -> Velocity
         self.vel["x"] += ax * dt
         self.vel["y"] += ay * dt
         self.vel["z"] += az * dt
         
+        # Apply Drag
+        self.vel["x"] *= FRICTION
+        self.vel["y"] *= FRICTION
+        self.vel["z"] *= FRICTION
+
+        # Integrate Velocity -> Position
         self.pos["x"] += self.vel["x"] * dt
         self.pos["y"] += self.vel["y"] * dt
         self.pos["z"] += self.vel["z"] * dt
