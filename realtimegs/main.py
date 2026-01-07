@@ -103,30 +103,30 @@ class PositionTracker:
         # Calculate Magnitude. Should be ~9.81 if still.
         current_mag = math.sqrt(ax_world**2 + ay_world**2 + az_world**2)
         
-        # If we are close to 1G (within 0.5 m/s^2), assume stationary.
-        is_stationary = abs(current_mag - 9.81) < 0.5
+        # FIX: Much tighter threshold.
+        # 0.05 means we must be extremely still to recalibrate.
+        # This prevents "eating" valid movement.
+        is_stationary = abs(current_mag - 9.81) < 0.05
 
         if is_stationary:
-            # ADAPTIVE BIAS: Slowly shift the zero-point to match current reading.
-            # This kills the "climbing negative Z" by accepting the current Z as the new zero.
-            alpha = 0.05 # Adaptation speed (0.0 to 1.0)
+            # ADAPTIVE BIAS: Only learn new zero when dead still.
+            alpha = 0.01 # Slower adaptation to prevent jitter capture
             
-            # Target bias is the current reading (minus true gravity for Z)
             self.world_bias["x"] = self.world_bias["x"] * (1-alpha) + (ax_world) * alpha
             self.world_bias["y"] = self.world_bias["y"] * (1-alpha) + (ay_world) * alpha
             self.world_bias["z"] = self.world_bias["z"] * (1-alpha) + (az_world - 9.81) * alpha
             
-            # Kill velocity aggressively when stationary
+            # Kill velocity aggressively when stationary (ZUPT)
             self.vel["x"] *= 0.5
             self.vel["y"] *= 0.5
             self.vel["z"] *= 0.5
             
-            # Zero out if very small
+            # Hard Zero
             if abs(self.vel["x"]) < 0.01: self.vel["x"] = 0
             if abs(self.vel["y"]) < 0.01: self.vel["y"] = 0
             if abs(self.vel["z"]) < 0.01: self.vel["z"] = 0
             
-            # Don't accelerate
+            # Don't integrate this step
             ax, ay, az = 0, 0, 0
         else:
             # We are moving. Subtract the learned bias.
@@ -135,7 +135,8 @@ class PositionTracker:
             az = (az_world - 9.81) - self.world_bias["z"]
 
             # Deadband Filter
-            threshold = 0.2
+            # Anything below 0.15 is considered sensor noise
+            threshold = 0.15
             if abs(ax) < threshold: ax = 0
             if abs(ay) < threshold: ay = 0
             if abs(az) < threshold: az = 0
@@ -146,9 +147,10 @@ class PositionTracker:
             self.vel["z"] += az * dt
             
             # Friction (Drag)
-            self.vel["x"] *= 0.99
-            self.vel["y"] *= 0.99
-            self.vel["z"] *= 0.90 # Heavy Z drag to stop vertical jitter
+            # FIX: Lower friction (0.995) so we don't kill valid momentum too fast
+            self.vel["x"] *= 0.995
+            self.vel["y"] *= 0.995
+            self.vel["z"] *= 0.95 # Higher drag on Z to resist gravity drift
 
         # Integrate Velocity -> Position
         self.pos["x"] += self.vel["x"] * dt
