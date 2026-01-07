@@ -125,6 +125,7 @@
                 <div class="data-row"><span>DIGITAL GAIN</span><span class="data-val" id="cam-dgain">0x</span></div>
                 <div class="data-row"><span>AWB GAINS</span><span class="data-val" id="cam-awb">R:0 B:0</span></div>
                 <div class="data-row"><span>LENS / AF</span><span class="data-val" id="cam-lens">0.0 / IDLE</span></div>
+                <div class="data-row"><span>RESOLUTION</span><span class="data-val" id="cam-res">--</span></div>
             </div>
 
             <div class="panel">
@@ -187,22 +188,38 @@
             }
             if(d.total_g) document.getElementById('total-g').innerText = d.total_g;
 
-            // Camera Metadata
+            // Camera Metadata (Robust Handling)
             if(d.cam_meta) {
-                if(d.cam_meta.res !== "ERR") {
-                    document.getElementById('cam-fps').innerText = d.cam_meta.fps + " FPS";
+                // Ensure we have active data before trying to access properties
+                // res usually contains "1920x1080" when active, or "WAITING"/"ERR" when not.
+                if(d.cam_meta.res && d.cam_meta.res.includes('x')) {
+                    document.getElementById('cam-res').innerText = d.cam_meta.res;
                     
-                    const exp = d.cam_meta.exp_ms;
+                    const fps = d.cam_meta.fps || 0;
+                    document.getElementById('cam-fps').innerText = fps.toFixed(1) + " FPS";
+                    
+                    const exp = d.cam_meta.exp_ms || 0;
                     document.getElementById('cam-exp').innerText = exp.toFixed(1) + " ms";
                     document.getElementById('cam-exp').style.color = (exp > 30) ? "#ffcc00" : "#fff";
                     
-                    document.getElementById('cam-gain').innerText = d.cam_meta.a_gain.toFixed(2) + "x";
-                    document.getElementById('cam-dgain').innerText = d.cam_meta.d_gain.toFixed(2) + "x";
-                    document.getElementById('cam-awb').innerText = `R:${d.cam_meta.awb_r} B:${d.cam_meta.awb_b}`;
+                    const gain = d.cam_meta.a_gain || 1;
+                    document.getElementById('cam-gain').innerText = gain.toFixed(2) + "x";
+                    
+                    const d_gain = d.cam_meta.d_gain || 1;
+                    document.getElementById('cam-dgain').innerText = d_gain.toFixed(2) + "x";
+                    
+                    const awb_r = d.cam_meta.awb_r || 0;
+                    const awb_b = d.cam_meta.awb_b || 0;
+                    document.getElementById('cam-awb').innerText = `R:${awb_r.toFixed(2)} B:${awb_b.toFixed(2)}`;
                     
                     const states = ["IDLE", "SCAN", "LOCKED", "FAIL"];
-                    const st = states[d.cam_meta.af_state] || "UNKNOWN";
-                    document.getElementById('cam-lens').innerText = `${d.cam_meta.lens} / ${st}`;
+                    const af_idx = d.cam_meta.af_state || 0;
+                    const st = states[af_idx] || "UNKNOWN";
+                    const lens = d.cam_meta.lens || 0.0;
+                    document.getElementById('cam-lens').innerText = `${lens.toFixed(2)} / ${st}`;
+                } else {
+                    // Fallback if data isn't ready
+                    document.getElementById('cam-res').innerText = d.cam_meta.res || "INIT";
                 }
             }
 
