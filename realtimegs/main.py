@@ -1,53 +1,158 @@
+import socket
+import threading
 import time
+import json
+import struct
+import os
+import io
 import sys
-from config import HTTP_PORT, SHAKE_THRESHOLD
-from hardware.camera import CameraSystem
-from hardware.imu import IMU
-from web import server
+import subprocess
+from flask import Flask, Response, send_file
 
-def main():
-    print("--- ARTEMIS SWARM STARTUP ---")
-    
-    # 1. Hardware Init
+# --- HARDWARE IMPORTS ---
+try:
+    from hardware.camera import CameraSystem
+    from hardware.imu import IMU
+except ImportError:
+    print("Hardware libraries missing. Ensure hardware/ folder exists.")
+    sys.exit(1)
+
+# --- CONFIG ---
+HTTP_PORT = 8000 
+
+# Initialize Global Hardware
+cam = CameraSystem()
+imu = IMU()
+cam_lock = threading.Lock()
+
+# --- CAMERA CONFIG ---
+def configure_camera(width, height):
+    print(f"[System] Switching Camera to {width}x{height}...")
     try:
-        imu = IMU()
-        cam = CameraSystem()
+        try: cam.picam2.stop()
+        except: pass
+        config = cam.picam2.create_video_configuration(
+            main={"size": (width, height), "format": "RGB888"}
+        )
+        cam.picam2.configure(config)
+        cam.picam2.start()
+        print(f"[System] Camera Active at {width}x{height}.")
     except Exception as e:
-        print(f"HW ERROR: {e}")
-        return
+        print(f"[System] Camera Config Failed: {e}")
 
-    # 2. Start Web Server (Daemon Thread)
-    print(f"Starting Ground Station on port {HTTP_PORT}...")
-    server.run_server(cam, imu, HTTP_PORT)
-    
-    # 3. Main Loop
-    print("Ready.")
-    try:
-        while True:
-            # Get Data
-            data = imu.get_data()
-            if data['status'] == 'ONLINE':
-                ax = data['accel']['x']
-                ay = data['accel']['y']
-                az = data['accel']['z']
-                
-                # Check for shake (>15m/s^2)
-                if max(abs(ax), abs(ay), abs(az)) > SHAKE_THRESHOLD:
-                    print(">>> SHAKE DETECTED")
-                    
-                    # Trigger capture via Web Server context
-                    with server.app.app_context():
-                        server.capture()
-                    
-                    # Cooldown
-                    time.sleep(2)
+# Startup at 1080p
+configure_camera(1920, 1080)
+
+app = Flask(__name__)
+
+class HybridNode:
+    def __init__(self):
+        self.running = True
+        self.bt_thread = threading.Thread(target=self.run_bt_server)
+        self.bt_thread.daemon = True
+        self.bt_thread.start()
+
+    def get_rssi(self, mac):
+        try:
+            cmd = ["hcitool", "rssi", mac]
+            res = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)
+            return int(res.decode().split(":")[1])
+        except:
+            return 0
+
+    def get_system_stats(self):
+        """Gather CPU Load, RAM, and Disk Space"""
+        stats = {"cpu_temp": 0, "cpu_load": 0, "mem_percent": 0, "disk_percent": 0}
+        try:
+            # CPU Temp
+            with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
+                stats["cpu_temp"] = float(f.read()) / 1000.0
             
-            time.sleep(0.1)
+            # CPU Load (1 min avg)
+            stats["cpu_load"] = round(os.getloadavg()[0] * 100 / os.cpu_count(), 1)
+            
+            # Memory (simple approximation from /proc/meminfo)
+            with open("/proc/meminfo", "r") as f:
+                lines = f.readlines()
+                total = int(lines[0].split()[1])
+                available = int(lines[2].split()[1])
+                stats["mem_percent"] = round((1 - available/total) * 100, 1)
 
-    except KeyboardInterrupt:
-        print("\nStopping...")
-    finally:
-        cam.stop()
+            # Disk Usage
+            st = os.statvfs('/')
+            total = st.f_blocks * st.f_frsize
+            free = st.f_bavail * st.f_frsize
+            stats["disk_percent"] = round((1 - free/total) * 100, 1)
+            
+        except:
+            pass
+        return stats
+
+    def run_bt_server(self):
+        print("[BT] Configuring Adapter...")
+        os.system("sudo hciconfig hci0 piscan")
+        os.system("sdptool add SP")
+
+        try:
+            server_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+            server_sock.bind(("00:00:00:00:00:00", 1))
+            server_sock.listen(1)
+            print("[BT] Ready...")
+
+            while self.running:
+                try:
+                    client, addr = server_sock.accept()
+                    print(f"[BT] Connected: {addr}")
+                    while self.running:
+                        # 1. Base Sensor Data
+                        data = imu.get_data() if imu else {"status": "no_imu"}
+                        
+                        # 2. Add System Stats & RSSI
+                        sys_stats = self.get_system_stats()
+                        data.update(sys_stats)
+                        data["rssi"] = self.get_rssi(addr[0])
+                        
+                        # 3. Send
+                        msg = json.dumps(data).encode('utf-8')
+                        header = struct.pack("!4sI", b"TELE", len(msg))
+                        client.sendall(header + msg)
+                        time.sleep(0.05)
+                except Exception as e:
+                    print(f"[BT] Disconnected: {e}")
+                    if client: try: client.close()
+                    except: pass
+                    time.sleep(1)
+        except Exception as e:
+            print(f"[BT] Server Error: {e}")
+
+# --- FLASK ROUTES (Unchanged) ---
+@app.route('/stream')
+def stream():
+    def generate():
+        stream = io.BytesIO()
+        while True:
+            with cam_lock:
+                cam.picam2.capture_file(stream, format="jpeg")
+            stream.seek(0)
+            frame = stream.read()
+            stream.seek(0)
+            stream.truncate()
+            yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            time.sleep(0.03)
+    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/snapshot')
+def snapshot():
+    stream = io.BytesIO()
+    with cam_lock:
+        print("[Snap] 4.6K...")
+        configure_camera(4608, 2592)
+        cam.picam2.capture_file(stream, format="jpeg")
+        print("[Snap] Reverting...")
+        configure_camera(1920, 1080)
+    stream.seek(0)
+    return send_file(stream, mimetype='image/jpeg', download_name='snap.jpg')
 
 if __name__ == "__main__":
-    main()
+    node = HybridNode()
+    app.run(host='0.0.0.0', port=HTTP_PORT, threaded=True)
