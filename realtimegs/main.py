@@ -69,7 +69,8 @@ class HybridNode:
                 stats["cpu_temp"] = float(f.read()) / 1000.0
             
             # CPU Load (1 min avg)
-            stats["cpu_load"] = round(os.getloadavg()[0] * 100 / os.cpu_count(), 1)
+            cpu_count = os.cpu_count() or 1
+            stats["cpu_load"] = round(os.getloadavg()[0] * 100 / cpu_count, 1)
             
             # Memory (simple approximation from /proc/meminfo)
             with open("/proc/meminfo", "r") as f:
@@ -119,8 +120,11 @@ class HybridNode:
                         time.sleep(0.05)
                 except Exception as e:
                     print(f"[BT] Disconnected: {e}")
-                    if client: try: client.close()
-                    except: pass
+                    if client:
+                        try: 
+                            client.close()
+                        except: 
+                            pass
                     time.sleep(1)
         except Exception as e:
             print(f"[BT] Server Error: {e}")
