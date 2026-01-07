@@ -3,148 +3,251 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Artemis Ground Station</title>
+    <title>Artemis Engineering Console</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        :root { --bg-color: #0d0d0d; --text-main: #00ff41; --border: #333; }
-        body { background: var(--bg-color); color: var(--text-main); font-family: 'Courier New', monospace; padding: 10px; display: flex; flex-direction: column; height: 100vh; margin: 0; box-sizing: border-box; }
-        .grid { display: grid; grid-template-columns: 1fr 1.8fr 1fr; grid-template-rows: 1fr auto; gap: 10px; flex-grow: 1; min-height: 0; }
-        .panel { background: #141414; border: 1px solid var(--border); padding: 8px; overflow-y: auto; display: flex; flex-direction: column; }
-        .box-val { background: #222; border: 1px solid #333; padding: 2px; text-align: center; }
-        .box-num { font-weight: bold; font-size: 1.1em; color: #fff; }
-        .box-lbl { font-size: 0.7em; color: #888; display: block; }
-        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-bottom: 8px; }
-        .btn { background: #222; color: #fff; border: 1px solid #444; padding: 10px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 5px; }
-        .btn:hover { background: #333; }
-        .btn-green { background: #004400; border-color: #00ff41; }
-        .btn-red { background: #440000; border-color: #ff0000; }
-        .btn-blue { background: #000044; border-color: #0088ff; }
-        img.video { width: 100%; height: 100%; object-fit: contain; background: #000; }
-        .gallery { height: 100px; display: flex; gap: 5px; overflow-x: auto; background: #111; padding: 5px; grid-column: 1 / -1; }
-        .thumb { height: 100%; border: 1px solid #444; cursor: pointer; }
+        :root { --bg: #050505; --panel: #111; --border: #333; --text: #00ff41; --dim: #00661a; --warn: #ffcc00; --alert: #ff0000; }
+        body { background: var(--bg); color: var(--text); font-family: 'Consolas', 'Courier New', monospace; padding: 10px; margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; }
+        
+        /* Layout */
+        header { display: flex; justify-content: space-between; border-bottom: 2px solid var(--text); margin-bottom: 10px; padding-bottom: 5px; }
+        .main-grid { display: grid; grid-template-columns: 250px 1fr 250px; gap: 10px; flex-grow: 1; min-height: 0; }
+        .col { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+        
+        /* Components */
+        .panel { background: var(--panel); border: 1px solid var(--border); padding: 8px; }
+        h2 { margin: 0 0 5px 0; font-size: 0.9em; color: #fff; border-bottom: 1px solid var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+        
+        .data-row { display: flex; justify-content: space-between; font-size: 0.8em; margin-bottom: 3px; }
+        .data-val { font-weight: bold; color: #fff; }
+        
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px; text-align: center; margin-bottom: 5px; }
+        .sensor-box { background: #000; border: 1px solid var(--border); padding: 3px; }
+        .lbl { display: block; font-size: 0.6em; color: #888; }
+        .val { font-size: 0.9em; font-weight: bold; }
+
+        /* Video */
+        .vid-container { flex-grow: 1; background: #000; border: 1px solid var(--border); position: relative; display: flex; align-items: center; justify-content: center; }
+        img { max-width: 100%; max-height: 100%; }
+        .overlay { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 5px; font-size: 0.8em; border: 1px solid var(--dim); }
+
+        /* Bars */
+        .bar-bg { width: 100%; height: 6px; background: #222; margin-top: 2px; }
+        .bar-fill { height: 100%; background: var(--text); width: 0%; transition: width 0.2s; }
+        .bar-warn { background: var(--warn); }
+        .bar-alert { background: var(--alert); }
+
+        .btn { background: var(--panel); border: 1px solid var(--text); color: var(--text); width: 100%; padding: 10px; cursor: pointer; font-weight: bold; margin-top: 5px; }
+        .btn:hover { background: var(--dim); color: #fff; }
+        
+        /* Process Table */
+        table { width: 100%; border-collapse: collapse; font-size: 0.7em; }
+        th { text-align: left; color: #888; border-bottom: 1px solid #333; }
+        td { padding: 2px 0; }
+        .high-cpu { color: var(--warn); }
     </style>
 </head>
 <body>
-    <div style="display:flex; justify-content:space-between; margin-bottom:10px; border-bottom:2px solid #00ff41;">
-        <h2>ARTEMIS COMMAND</h2>
-        <h2 id="status">CONNECTING...</h2>
-    </div>
+    <header>
+        <div>ARTEMIS // ENGINEERING TELEMETRY</div>
+        <div id="conn-status" style="color:red">DISCONNECTED</div>
+    </header>
 
-    <div class="grid">
-        <!-- LEFT -->
-        <div class="panel">
-            <span class="box-lbl">ACCEL</span>
-            <div class="grid-3">
-                <div class="box-val"><span id="ax">0.0</span></div>
-                <div class="box-val"><span id="ay">0.0</span></div>
-                <div class="box-val"><span id="az">0.0</span></div>
-            </div>
-            <span class="box-lbl">GYRO</span>
-            <div class="grid-3">
-                <div class="box-val"><span id="gx">0.0</span></div>
-                <div class="box-val"><span id="gy">0.0</span></div>
-                <div class="box-val"><span id="gz">0.0</span></div>
-            </div>
-            <span class="box-lbl">MAG</span>
-            <div class="grid-3">
-                <div class="box-val"><span id="mx">0.0</span></div>
-                <div class="box-val"><span id="my">0.0</span></div>
-                <div class="box-val"><span id="mz">0.0</span></div>
-            </div>
-        </div>
-
-        <!-- CENTER -->
-        <div class="panel" style="padding:0;">
-            <img id="video" class="video" src="{{ video_url }}">
-            <button class="btn btn-green" onclick="snap()">SNAP (4.6K)</button>
-        </div>
-
-        <!-- RIGHT -->
-        <div class="panel">
-            <span class="box-lbl">OFFSET (Meters)</span>
-            <div class="grid-3">
-                <div class="box-val"><span id="off-x">0.00</span></div>
-                <div class="box-val"><span id="off-y">0.00</span></div>
-                <div class="box-val"><span id="off-z">0.00</span></div>
-            </div>
-            
-            <div id="train-status" style="text-align:center; margin-bottom:5px; font-weight:bold; color:#888;">READY</div>
-            
-            <div style="display:flex; gap:5px; margin-bottom: 5px;">
-                <button class="btn btn-blue" onclick="track('calibrate_start')">TRAIN START</button>
-                <button class="btn btn-blue" onclick="track('calibrate_stop')">TRAIN STOP</button>
-            </div>
-            <div style="display:flex; gap:5px;">
-                <button class="btn btn-green" onclick="track('start')">START TRACK</button>
-                <button class="btn btn-red" onclick="track('stop')">STOP TRACK</button>
+    <div class="main-grid">
+        <!-- LEFT COLUMN: DYNAMICS -->
+        <div class="col">
+            <div class="panel">
+                <h2>Attitude</h2>
+                <div class="data-row"><span>HEADING</span><span class="data-val" id="att-yaw">0°</span></div>
+                <div class="data-row"><span>PITCH</span><span class="data-val" id="att-pitch">0°</span></div>
+                <div class="data-row"><span>ROLL</span><span class="data-val" id="att-roll">0°</span></div>
+                <div class="data-row" style="margin-top:5px;"><span>TOTAL G</span><span class="data-val" id="total-g">1.00</span></div>
             </div>
 
-            <div style="margin-top:auto;">
-                <span class="box-lbl">VITALS</span>
-                <div style="display:flex; justify-content:space-between; border-bottom:1px solid #333;">
-                    <span>CPU</span><span id="cpu">0%</span>
+            <div class="panel">
+                <h2>Accelerometer (m/s²)</h2>
+                <div class="grid-3">
+                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="ax">0.0</span></div>
+                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="ay">0.0</span></div>
+                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="az">0.0</span></div>
                 </div>
-                <div style="display:flex; justify-content:space-between; border-bottom:1px solid #333;">
-                    <span>TEMP</span><span id="temp">0C</span>
+            </div>
+
+            <div class="panel">
+                <h2>Gyroscope (deg/s)</h2>
+                <div class="grid-3">
+                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="gx">0.0</span></div>
+                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="gy">0.0</span></div>
+                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="gz">0.0</span></div>
                 </div>
-                <div style="display:flex; justify-content:space-between;">
-                    <span>RSSI</span><span id="rssi">0</span>
+            </div>
+
+            <div class="panel">
+                <h2>Magnetometer (uT)</h2>
+                <div class="grid-3">
+                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="mx">0.0</span></div>
+                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="my">0.0</span></div>
+                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="mz">0.0</span></div>
                 </div>
             </div>
         </div>
 
-        <!-- BOTTOM -->
-        <div class="gallery" id="gallery"></div>
+        <!-- MIDDLE: OPTICAL -->
+        <div class="col">
+            <div class="vid-container">
+                <img src="{{ video_url }}" onerror="this.style.display='none'">
+                <div class="overlay">LIVE OPTICAL FEED [1080p]</div>
+            </div>
+            <button class="btn" onclick="snap()">ACQUIRE HIGH-RES TARGET (4.6K)</button>
+            <div id="gallery" style="height:80px; background:#000; border:1px solid var(--border); display:flex; gap:5px; overflow-x:auto; padding:5px;"></div>
+        </div>
+
+        <!-- RIGHT: SYSTEMS ENGINEERING -->
+        <div class="col">
+            <div class="panel">
+                <h2>Power & Clock</h2>
+                <div class="data-row"><span>CORE VOLTS</span><span class="data-val" id="cpu-volts">0.00 V</span></div>
+                <div class="data-row"><span>CPU CLOCK</span><span class="data-val" id="cpu-clock">0 MHz</span></div>
+                <div class="data-row"><span>THROTTLE</span><span class="data-val" id="throttle">0x0</span></div>
+            </div>
+
+            <div class="panel">
+                <h2>Thermals & Load</h2>
+                <div class="data-row"><span>CPU TEMP</span><span class="data-val" id="cpu-temp">0°C</span></div>
+                <div class="bar-bg"><div id="bar-temp" class="bar-fill" style="width:0%"></div></div>
+                
+                <div class="data-row" style="margin-top:5px;"><span>CPU LOAD</span><span class="data-val" id="cpu-load">0%</span></div>
+                <div class="bar-bg"><div id="bar-load" class="bar-fill" style="width:0%"></div></div>
+            </div>
+
+            <div class="panel">
+                <h2>Memory & Storage</h2>
+                <div class="data-row"><span>RAM USE</span><span class="data-val" id="ram-use">0 / 0 MB</span></div>
+                <div class="bar-bg"><div id="bar-ram" class="bar-fill" style="width:0%"></div></div>
+                
+                <div class="data-row" style="margin-top:5px;"><span>DISK USE</span><span class="data-val" id="disk-use">0 / 0 GB</span></div>
+                <div class="bar-bg"><div id="bar-disk" class="bar-fill" style="width:0%"></div></div>
+            </div>
+
+            <div class="panel">
+                <h2>Top Processes</h2>
+                <table>
+                    <thead><tr><th>PID</th><th>NAME</th><th>CPU</th><th>MEM</th></tr></thead>
+                    <tbody id="proc-list"></tbody>
+                </table>
+            </div>
+
+            <div class="panel">
+                <h2>Connectivity</h2>
+                <div class="data-row"><span>WIFI RSSI</span><span class="data-val" id="wifi-rssi">0 dBm</span></div>
+                <div class="data-row"><span>BT RSSI</span><span class="data-val" id="bt-rssi">0 dBm</span></div>
+                <div class="data-row"><span>UPTIME</span><span class="data-val" id="uptime">0s</span></div>
+            </div>
+        </div>
     </div>
 
     <script>
-        function update(d) {
-            document.getElementById('status').innerText = d.status;
-            if(d.accel) ['x','y','z'].forEach(k => document.getElementById('a'+k).innerText = d.accel[k].toFixed(1));
+        function updateDisplay(d) {
+            document.getElementById('conn-status').innerText = d.status || "OFFLINE";
+            document.getElementById('conn-status').style.color = (d.status === "ONLINE") ? "#00ff41" : "red";
+
+            // SENSORS
+            if(d.accel) ['x','y','z'].forEach(k => document.getElementById('a'+k).innerText = d.accel[k].toFixed(2));
             if(d.gyro) ['x','y','z'].forEach(k => document.getElementById('g'+k).innerText = d.gyro[k].toFixed(1));
             if(d.mag) ['x','y','z'].forEach(k => document.getElementById('m'+k).innerText = d.mag[k].toFixed(0));
-            if(d.pos_offset) ['x','y','z'].forEach(k => document.getElementById('off-'+k).innerText = d.pos_offset[k].toFixed(2));
-            if(d.cpu_load) document.getElementById('cpu').innerText = d.cpu_load + "%";
-            if(d.cpu_temp) document.getElementById('temp').innerText = d.cpu_temp.toFixed(1) + "C";
-            if(d.rssi) document.getElementById('rssi').innerText = d.rssi;
             
-            const ts = document.getElementById('train-status');
-            if (d.calibrating) {
-                ts.innerText = "CALIBRATING..."; 
-                ts.style.color = "yellow";
-            } else if (d.tracking_active) {
-                ts.innerText = "TRACKING ACTIVE";
-                ts.style.color = "#00ff41";
-            } else {
-                ts.innerText = "IDLE";
-                ts.style.color = "#888";
+            if(d.attitude) {
+                document.getElementById('att-yaw').innerText = d.attitude.yaw.toFixed(0) + "°";
+                document.getElementById('att-pitch').innerText = d.attitude.pitch.toFixed(0) + "°";
+                document.getElementById('att-roll').innerText = d.attitude.roll.toFixed(0) + "°";
             }
+            if(d.total_g) document.getElementById('total-g').innerText = d.total_g;
+
+            // SYSTEMS
+            if(d.sys) {
+                const s = d.sys;
+                document.getElementById('cpu-volts').innerText = s.cpu_volts ? s.cpu_volts.toFixed(2) + " V" : "--";
+                document.getElementById('cpu-clock').innerText = s.cpu_clock + " MHz";
+                
+                const tObj = document.getElementById('throttle');
+                tObj.innerText = s.throttle_hex;
+                tObj.style.color = (s.throttle_hex !== "0x0") ? "red" : "#00ff41";
+
+                document.getElementById('cpu-temp').innerText = s.cpu_temp + "°C";
+                updateBar('bar-temp', s.cpu_temp, 80);
+                
+                document.getElementById('cpu-load').innerText = s.cpu_load + "%";
+                updateBar('bar-load', s.cpu_load, 100);
+
+                if (s.ram_total_mb) {
+                    document.getElementById('ram-use').innerText = `${s.ram_used_mb} / ${s.ram_total_mb} MB`;
+                    updateBar('bar-ram', s.ram_percent, 100);
+                }
+                if (s.disk_total_gb) {
+                    document.getElementById('disk-use').innerText = `${s.disk_used_gb} / ${s.disk_total_gb} GB`;
+                    updateBar('bar-disk', s.disk_percent, 100);
+                }
+                
+                document.getElementById('wifi-rssi').innerText = s.wifi_dbm + " dBm";
+                document.getElementById('uptime').innerText = new Date(s.uptime_script * 1000).toISOString().substr(11, 8);
+
+                // Update Process List
+                if (s.processes) {
+                    const tbody = document.getElementById('proc-list');
+                    tbody.innerHTML = "";
+                    s.processes.forEach(p => {
+                        const isHigh = parseFloat(p.cpu) > 50;
+                        const row = `<tr>
+                            <td>${p.pid}</td>
+                            <td style="color:#fff">${p.name}</td>
+                            <td class="${isHigh ? 'high-cpu' : ''}">${p.cpu}%</td>
+                            <td>${p.mem}%</td>
+                        </tr>`;
+                        tbody.innerHTML += row;
+                    });
+                }
+            }
+            if(d.rssi) document.getElementById('bt-rssi').innerText = d.rssi + " dBm";
         }
 
-        async function track(action) {
-            await fetch('/api/track', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action})});
+        function updateBar(id, val, max) {
+            const bar = document.getElementById(id);
+            const pct = Math.min((val / max) * 100, 100);
+            bar.style.width = pct + "%";
+            bar.className = "bar-fill"; // Reset
+            if (pct > 90) bar.classList.add("bar-alert");
+            else if (pct > 70) bar.classList.add("bar-warn");
         }
-        
+
         async function snap() {
             await fetch('/api/capture', {method:'POST'});
             loadGal();
         }
 
         async function loadGal() {
-            let res = await fetch('/api/captures');
-            let files = await res.json();
-            let g = document.getElementById('gallery');
-            g.innerHTML = "";
-            files.forEach(f => {
-                let i = document.createElement('img');
-                i.src = "/captures/"+f;
-                i.className = "thumb";
-                i.onclick = () => window.open(i.src);
-                g.appendChild(i);
-            });
+            try {
+                let res = await fetch('/api/captures');
+                let files = await res.json();
+                let g = document.getElementById('gallery');
+                g.innerHTML = "";
+                files.forEach(f => {
+                    let i = document.createElement('img');
+                    i.src = "/captures/"+f;
+                    i.style.height = "100%";
+                    i.style.border = "1px solid #444";
+                    i.onclick = () => window.open(i.src);
+                    g.appendChild(i);
+                });
+            } catch(e) {}
         }
 
-        setInterval(async () => { try { update(await (await fetch('/api/telemetry')).json()); } catch {} }, 100);
+        setInterval(async () => { 
+            try { 
+                let res = await fetch('/api/telemetry');
+                updateDisplay(await res.json()); 
+            } catch {} 
+        }, 100);
+        
         loadGal();
     </script>
 </body>

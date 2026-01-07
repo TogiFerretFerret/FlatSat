@@ -26,167 +26,159 @@ cam = CameraSystem()
 imu = IMU()
 cam_lock = threading.Lock()
 
-# --- ADVANCED PHYSICS ENGINE (INS) ---
-def rotate_vector_by_quaternion(v, q):
-    """ Rotates vector v (x,y,z) by quaternion q (w,x,y,z) into World Frame. """
-    vx, vy, vz = v['x'], v['y'], v['z']
-    qw, qx, qy, qz = q[0], q[1], q[2], q[3]
-
-    x1 = qy * vz - qz * vy
-    y1 = qz * vx - qx * vz
-    z1 = qx * vy - qy * vx
-
-    x2 = qy * z1 - qz * y1
-    y2 = qz * x1 - qx * z1
-    z2 = qx * y1 - qy * x1
-
-    return {
-        "x": vx + 2.0 * (qw * x1 + x2),
-        "y": vy + 2.0 * (qw * y1 + y2),
-        "z": vz + 2.0 * (qw * z1 + z2)
-    }
-
-def nlerp(q1, q2, alpha):
-    """ Normalized Linear Interpolation for Quaternions (Sensor Fusion) """
-    dot = sum(a*b for a,b in zip(q1, q2))
-    
-    # Invert to take shortest path
-    if dot < 0: q2 = [-x for x in q2]
-    
-    res = [(1-alpha)*q1[i] + alpha*q2[i] for i in range(4)]
-    norm = math.sqrt(sum(x*x for x in res))
-    if norm > 0:
-        return [x/norm for x in res]
-    return q1
-
-class PositionTracker:
+# --- SYSTEM MONITOR (The Kitchen Sink) ---
+class SystemMonitor:
     def __init__(self):
-        self.active = False
-        self.calibrating = False
-        self.calibration_samples = 0
-        self.calibration_sum = {"x":0, "y":0, "z":0}
-        
-        self.pos = {"x": 0.0, "y": 0.0, "z": 0.0}
-        self.vel = {"x": 0.0, "y": 0.0, "z": 0.0}
-        self.q = [1.0, 0.0, 0.0, 0.0] 
-        self.world_bias = {"x": 0.0, "y": 0.0, "z": 0.0}
-        self.last_time = time.time()
+        self.cached_stats = {}
+        self.last_slow_update = 0
+        self.start_time = time.time()
 
-    def start_calibration(self):
-        self.calibrating = True
-        self.calibration_samples = 0
-        self.calibration_sum = {"x":0, "y":0, "z":0}
-        print("[Physics] CALIBRATION STARTED...")
+    def get_quick_stats(self):
+        """Stats that change fast and are cheap to read"""
+        stats = {}
+        # CPU Temp
+        try:
+            with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
+                stats["cpu_temp"] = round(float(f.read()) / 1000.0, 1)
+        except: stats["cpu_temp"] = 0
 
-    def stop_calibration(self):
-        if not self.calibrating: return
+        # CPU Load (1 min avg)
+        try:
+            stats["cpu_load"] = round(os.getloadavg()[0] / os.cpu_count() * 100, 1)
+        except: stats["cpu_load"] = 0
         
-        if self.calibration_samples > 0:
-            # Average the samples to get a stable bias
-            self.world_bias = {
-                "x": self.calibration_sum["x"] / self.calibration_samples,
-                "y": self.calibration_sum["y"] / self.calibration_samples,
-                "z": self.calibration_sum["z"] / self.calibration_samples
-            }
-            print(f"[Physics] CALIBRATION COMPLETE. Samples: {self.calibration_samples}. New Zero: {self.world_bias}")
-        else:
-            print("[Physics] CALIBRATION STOPPED (No samples). Zero unchanged.")
+        return stats
+
+    def get_slow_stats(self):
+        """Heavy stats, cached for 2 seconds"""
+        if time.time() - self.last_slow_update < 2.0:
+            return self.cached_stats
+        
+        stats = {}
+        
+        # 1. Voltage & Clock & Throttle (vcgencmd)
+        try:
+            # Core Voltage
+            res = subprocess.check_output(["vcgencmd", "measure_volts", "core"], stderr=subprocess.DEVNULL)
+            stats["cpu_volts"] = float(res.decode().split("=")[1].replace("V\n", ""))
             
-        self.calibrating = False
+            # Clock Speed
+            res = subprocess.check_output(["vcgencmd", "measure_clock", "arm"], stderr=subprocess.DEVNULL)
+            stats["cpu_clock"] = int(int(res.decode().split("=")[1]) / 1000000)
+            
+            # Throttling Hex
+            res = subprocess.check_output(["vcgencmd", "get_throttled"], stderr=subprocess.DEVNULL)
+            stats["throttle_hex"] = res.decode().split("=")[1].strip()
+        except: 
+            stats["cpu_volts"] = 0
+            stats["cpu_clock"] = 0
+            stats["throttle_hex"] = "0x0"
 
-    def start(self, start_quat):
-        self.q = start_quat if start_quat else [1.0, 0.0, 0.0, 0.0]
-        self.pos = {"x": 0.0, "y": 0.0, "z": 0.0}
-        self.vel = {"x": 0.0, "y": 0.0, "z": 0.0}
-        self.last_time = time.time()
-        self.active = True
-        print(f"[Physics] TRACKING STARTED. Using Bias: {self.world_bias}")
+        # 2. Memory Usage
+        try:
+            with open("/proc/meminfo", "r") as f:
+                mem = {}
+                for line in f:
+                    parts = line.split()
+                    mem[parts[0].replace(":", "")] = int(parts[1])
+                
+                total = mem.get("MemTotal", 1)
+                avail = mem.get("MemAvailable", 0)
+                stats["ram_total_mb"] = int(total / 1024)
+                stats["ram_used_mb"] = int((total - avail) / 1024)
+                stats["ram_percent"] = round(((total - avail) / total) * 100, 1)
+        except: pass
 
-    def stop(self):
-        self.active = False
-        print("[Physics] STOPPED.")
+        # 3. Disk Usage
+        try:
+            st = os.statvfs('/')
+            total = st.f_blocks * st.f_frsize
+            free = st.f_bavail * st.f_frsize
+            stats["disk_total_gb"] = round(total / (1024**3), 1)
+            stats["disk_used_gb"] = round((total - free) / (1024**3), 1)
+            stats["disk_percent"] = round(((total - free) / total) * 100, 1)
+        except: pass
 
-    def update(self, curr_accel, curr_gyro, target_quat, dt):
-        # --- 1. SENSOR FUSION (Complementary Filter) ---
-        # Integrate Gyro (Fast, Smooth, Drifts)
-        gx = math.radians(curr_gyro["x"])
-        gy = math.radians(curr_gyro["y"])
-        gz = math.radians(curr_gyro["z"])
-
-        q = self.q
-        q_dot = [
-            0.5 * (-q[1]*gx - q[2]*gy - q[3]*gz),
-            0.5 * ( q[0]*gx + q[2]*gz - q[3]*gy),
-            0.5 * ( q[0]*gy - q[1]*gz + q[3]*gx),
-            0.5 * ( q[0]*gz + q[1]*gy - q[2]*gx)
-        ]
-
-        q_integrated = [
-            q[0] + q_dot[0] * dt,
-            q[1] + q_dot[1] * dt,
-            q[2] + q_dot[2] * dt,
-            q[3] + q_dot[3] * dt
-        ]
+        # 4. Uptime
+        try:
+            with open("/proc/uptime", "r") as f:
+                stats["uptime_sys"] = int(float(f.read().split()[0]))
+        except: stats["uptime_sys"] = 0
         
-        # Normalize
-        norm = math.sqrt(sum(x*x for x in q_integrated))
-        if norm > 0: q_integrated = [x / norm for x in q_integrated]
+        stats["uptime_script"] = int(time.time() - self.start_time)
 
-        # Fusion: Nudge Gyro (q_integrated) towards Accel/Mag (target_quat)
-        # Alpha 0.02 means 2% correction per frame. Keeps "Down" pointing Down.
-        if target_quat and len(target_quat) == 4:
-            self.q = nlerp(q_integrated, target_quat, 0.02)
-        else:
-            self.q = q_integrated
+        # 5. Wireless
+        try:
+            with open("/proc/net/wireless", "r") as f:
+                lines = f.readlines()
+                if len(lines) > 2:
+                    # wlan0: 0000   50.  -60.  ...
+                    parts = lines[2].split()
+                    stats["wifi_dbm"] = int(float(parts[3]))
+                    stats["wifi_link"] = int(float(parts[2]))
+        except: 
+            stats["wifi_dbm"] = 0
+            stats["wifi_link"] = 0
 
-        # --- 2. ROTATE TO WORLD FRAME ---
-        world_raw = rotate_vector_by_quaternion(curr_accel, self.q)
+        # 6. Top Processes (New)
+        try:
+            # Fetches PID, Command, %CPU, %MEM sorted by CPU usage
+            cmd = ["ps", "-Ao", "pid,comm,pcpu,pmem", "--sort=-pcpu"]
+            output = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode()
+            lines = output.strip().split('\n')
+            
+            procs = []
+            # Skip header, take top 5
+            for line in lines[1:6]:
+                parts = line.split()
+                if len(parts) >= 4:
+                    procs.append({
+                        "pid": parts[0],
+                        "name": parts[1],
+                        "cpu": parts[2],
+                        "mem": parts[3]
+                    })
+            stats["processes"] = procs
+        except:
+            stats["processes"] = []
 
-        # --- 3. CALIBRATION ---
-        if self.calibrating:
-            self.calibration_sum["x"] += world_raw["x"]
-            self.calibration_sum["y"] += world_raw["y"]
-            self.calibration_sum["z"] += world_raw["z"]
-            self.calibration_samples += 1
-            return 
+        self.cached_stats = stats
+        self.last_slow_update = time.time()
+        return stats
 
-        if not self.active: return
+sys_mon = SystemMonitor()
 
-        # --- 4. PHYSICS INTEGRATION ---
-        ax = world_raw["x"] - self.world_bias["x"]
-        ay = world_raw["y"] - self.world_bias["y"]
-        az = world_raw["z"] - self.world_bias["z"]
-
-        # Magnitude-based ZUPT (Zero Velocity Update)
-        # If total force is minimal, we are stationary.
-        movement_mag = math.sqrt(ax**2 + ay**2 + az**2)
-        
-        THRESHOLD = 0.25 # m/s^2 (0.025 G)
-        FRICTION = 0.90  # 10% velocity loss per step (High Drag)
-
-        if movement_mag < THRESHOLD:
-            # Stationary -> Kill Velocity
-            self.vel["x"] = 0.0
-            self.vel["y"] = 0.0
-            self.vel["z"] = 0.0
-            ax, ay, az = 0, 0, 0
-        else:
-            # Moving -> Apply Friction to prevent runaway
-            self.vel["x"] *= FRICTION
-            self.vel["y"] *= FRICTION
-            self.vel["z"] *= FRICTION
-
-        # Integrate Accel -> Velocity
-        self.vel["x"] += ax * dt
-        self.vel["y"] += ay * dt
-        self.vel["z"] += az * dt
-        
-        # Integrate Velocity -> Position
-        self.pos["x"] += self.vel["x"] * dt
-        self.pos["y"] += self.vel["y"] * dt
-        self.pos["z"] += self.vel["z"] * dt
-
-tracker = PositionTracker()
+# --- ATTITUDE MATH ---
+def calculate_attitude(accel, mag):
+    """ Calculate Roll, Pitch, and Yaw from Raw Sensors """
+    ax, ay, az = accel['x'], accel['y'], accel['z']
+    
+    # Roll (Rotation around X)
+    roll = math.atan2(ay, az)
+    
+    # Pitch (Rotation around Y)
+    pitch = math.atan2(-ax, math.sqrt(ay*ay + az*az))
+    
+    # Yaw (Compass Heading)
+    mx, my, mz = mag['x'], mag['y'], mag['z']
+    
+    # Tilt compensation
+    cos_r = math.cos(roll)
+    sin_r = math.sin(roll)
+    cos_p = math.cos(pitch)
+    sin_p = math.sin(pitch)
+    
+    mx_comp = mx * cos_p + mz * sin_p
+    my_comp = mx * sin_r * sin_p + my * cos_r - mz * sin_r * cos_p
+    
+    yaw = math.atan2(-my_comp, mx_comp)
+    
+    # Convert to degrees
+    return {
+        "roll": math.degrees(roll),
+        "pitch": math.degrees(pitch),
+        "yaw": (math.degrees(yaw) + 360) % 360
+    }
 
 # --- CAMERA CONFIG ---
 def configure_camera(width, height):
@@ -206,44 +198,22 @@ class HybridNode:
     def __init__(self):
         self.running = True
         
-        # --- CACHING SETUP ---
         self.cached_rssi = 0
         self.last_rssi_time = 0
-        self.cached_stats = {"cpu_temp": 0, "cpu_load": 0}
-        self.last_stats_time = 0
         
         self.bt_thread = threading.Thread(target=self.run_bt_server)
         self.bt_thread.daemon = True
         self.bt_thread.start()
 
     def get_rssi(self, mac):
-        # Cache check (2.0s duration)
-        if time.time() - self.last_rssi_time < 2.0:
-            return self.cached_rssi
-            
+        if time.time() - self.last_rssi_time < 2.0: return self.cached_rssi
         try:
             cmd = ["hcitool", "rssi", mac]
             val = int(subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().split(":")[1])
             self.cached_rssi = val
             self.last_rssi_time = time.time()
             return val
-        except: 
-            return self.cached_rssi
-
-    def get_system_stats(self):
-        # Cache check (1.0s duration)
-        if time.time() - self.last_stats_time < 1.0:
-            return self.cached_stats
-            
-        stats = {"cpu_temp": 0, "cpu_load": 0}
-        try:
-            with open("/sys/class/thermal/thermal_zone0/temp", "r") as f: stats["cpu_temp"] = float(f.read()) / 1000.0
-            stats["cpu_load"] = os.getloadavg()[0] * 25
-        except: pass
-        
-        self.cached_stats = stats
-        self.last_stats_time = time.time()
-        return stats
+        except: return self.cached_rssi
 
     def run_bt_server(self):
         print("[BT] Init...")
@@ -258,30 +228,36 @@ class HybridNode:
                 client, addr = server_sock.accept()
                 print(f"[BT] Connected: {addr}")
                 threading.Thread(target=self.listen_commands, args=(client,), daemon=True).start()
-                last_time = time.time()
 
                 while self.running:
-                    now = time.time()
-                    dt = now - last_time
-                    last_time = now
-                    
+                    # 1. Gather Sensor Data
                     data = imu.get_data() if imu else {"status": "no_imu"}
+                    
                     if data["status"] == "ONLINE":
-                        # Updated to pass the IMU's absolute quaternion for Fusion
-                        tracker.update(data["accel"], data["gyro"], data.get("quaternion"), dt)
+                        # Calculate high-res attitude
+                        att = calculate_attitude(data["accel"], data["mag"])
+                        data["attitude"] = att
                         
-                        data["pos_offset"] = tracker.pos
-                        data["calibrating"] = tracker.calibrating
-                        data["tracking_active"] = tracker.active
+                        # Total G calculation
+                        ax, ay, az = data["accel"]["x"], data["accel"]["y"], data["accel"]["z"]
+                        data["total_g"] = round(math.sqrt(ax**2 + ay**2 + az**2) / 9.81, 2)
 
-                    data.update(self.get_system_stats())
+                    # 2. Gather System Data
+                    # Merge Quick stats (every frame) and Slow stats (cached)
+                    sys_data = sys_mon.get_quick_stats()
+                    sys_data.update(sys_mon.get_slow_stats())
+                    data["sys"] = sys_data
+                    
+                    # 3. Connectivity
                     data["rssi"] = self.get_rssi(addr[0])
                     
+                    # 4. Transmit
                     msg = json.dumps(data).encode('utf-8')
                     header = struct.pack("!4sI", b"TELE", len(msg))
                     try: client.sendall(header + msg)
                     except: break
-                    time.sleep(0.005)
+                    
+                    time.sleep(0.05) # 20Hz update
             except: time.sleep(1)
 
     def listen_commands(self, sock):
@@ -290,18 +266,10 @@ class HybridNode:
                 header = sock.recv(8)
                 if not header: break
                 _, length = struct.unpack("!4sI", header)
-                cmd = struct.unpack("!4sI", header)[0].decode().strip()
-                payload = sock.recv(length) 
-                
-                if cmd == "TRK+": 
-                    data = imu.get_data()
-                    tracker.start(data.get("quaternion"))
-                elif cmd == "TRK-": tracker.stop()
-                elif cmd == "CAL+": tracker.start_calibration()
-                elif cmd == "CAL-": tracker.stop_calibration()
-                
+                payload = sock.recv(length)
             except: break
 
+# --- FLASK ROUTES ---
 @app.route('/stream')
 def stream():
     def generate():

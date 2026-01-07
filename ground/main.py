@@ -14,7 +14,7 @@ CAPTURE_DIR = os.path.join(os.getcwd(), "captures")
 if not os.path.exists(CAPTURE_DIR): os.makedirs(CAPTURE_DIR)
 
 app = Flask(__name__)
-telemetry_data = {"status": "CONNECTING...", "pos_offset": {"x":0,"y":0,"z":0}}
+telemetry_data = {"status": "CONNECTING...", "heading": 0}
 bt_sock = None
 lock = threading.Lock()
 
@@ -50,16 +50,6 @@ def bt_client_thread():
 
 threading.Thread(target=bt_client_thread, daemon=True).start()
 
-def send_bt_command(cmd):
-    with lock:
-        if bt_sock:
-            try:
-                pkt = struct.pack("!4sI", cmd.encode('utf-8'), 0)
-                bt_sock.sendall(pkt)
-                return True
-            except: pass
-    return False
-
 @app.route('/')
 def index(): return render_template('dashboard.html', video_url="/proxy_video")
 
@@ -74,18 +64,6 @@ def proxy_video():
 def api_telemetry():
     with lock: return jsonify(telemetry_data)
 
-@app.route('/api/track', methods=['POST'])
-def api_track():
-    action = request.json.get('action')
-    cmd = ""
-    if action == 'start': cmd = "TRK+"
-    elif action == 'stop': cmd = "TRK-"
-    elif action == 'calibrate_start': cmd = "CAL+"
-    elif action == 'calibrate_stop': cmd = "CAL-"
-    
-    if cmd: send_bt_command(cmd)
-    return jsonify({"status": "ok"})
-
 @app.route('/api/capture', methods=['POST'])
 def capture_image():
     try:
@@ -96,6 +74,19 @@ def capture_image():
             return jsonify({"status": "success", "file": fn})
     except: pass
     return jsonify({"status": "error"})
+
+@app.route('/api/download_csv')
+def download_csv():
+    """Proxy the CSV file from Pi to Browser"""
+    try:
+        url = f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/download_log"
+        resp = requests.get(url, timeout=5)
+        return Response(
+            resp.content,
+            mimetype="text/csv",
+            headers={"Content-disposition": "attachment; filename=mission_data.csv"}
+        )
+    except: return "Log Download Failed", 500
 
 @app.route('/api/captures')
 def list_captures():
