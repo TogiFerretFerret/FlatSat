@@ -54,13 +54,16 @@ class SystemMonitor:
     def update_network_stats(self):
         """Calculates real-time bandwidth usage"""
         try:
-            with open("/sys/class/net/wlan0/statistics/rx_bytes", "r") as f: rx = int(f.read())
-            with open("/sys/class/net/wlan0/statistics/tx_bytes", "r") as f: tx = int(f.read())
+            iface = "wlan0"
+            if not os.path.exists(f"/sys/class/net/{iface}"):
+                iface = "eth0"
+            
+            with open(f"/sys/class/net/{iface}/statistics/rx_bytes", "r") as f: rx = int(f.read())
+            with open(f"/sys/class/net/{iface}/statistics/tx_bytes", "r") as f: tx = int(f.read())
             
             now = time.time()
             dt = now - self.last_net_time
             
-            # Prevent divide by zero or huge jumps on startup
             if dt > 0.5:
                 rx_spd = (rx - self.last_rx) / dt / 1024 # KB/s
                 tx_spd = (tx - self.last_tx) / dt / 1024 # KB/s
@@ -77,6 +80,7 @@ class SystemMonitor:
             self.net_stats = {"rx_kbps": 0, "tx_kbps": 0}
 
     def get_quick_stats(self):
+        """Stats that change fast and are cheap to read"""
         stats = {}
         try:
             with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
@@ -87,7 +91,6 @@ class SystemMonitor:
             stats["cpu_load"] = round(os.getloadavg()[0] / os.cpu_count() * 100, 1)
         except: stats["cpu_load"] = 0
         
-        # Add Network Stats here (updates frequently)
         self.update_network_stats()
         stats.update(self.net_stats)
         
@@ -97,7 +100,17 @@ class SystemMonitor:
         if time.time() - self.last_slow_update < 2.0:
             return self.cached_stats
         
-        stats = {}
+        # INITIALIZE DEFAULTS so dashboard never says "undefined"
+        stats = {
+            "cpu_volts": 0, "cpu_clock": 0, "throttle_hex": "0x0", "throttle_flags": [],
+            "gpu_mem": "0M", 
+            "ram_total_mb": 0, "ram_used_mb": 0, "ram_percent": 0,
+            "disk_total_gb": 0, "disk_used_gb": 0, "disk_percent": 0,
+            "uptime_sys": 0, "uptime_script": 0, "ip_addr": "Unknown",
+            "wifi_dbm": 0, "wifi_link": 0, "wifi_retry": 0, "wifi_missed": 0,
+            "processes": []
+        }
+        
         # 1. Hardware Commands
         try:
             res = subprocess.check_output(["vcgencmd", "measure_volts", "core"], stderr=subprocess.DEVNULL)
@@ -113,12 +126,7 @@ class SystemMonitor:
 
             res = subprocess.check_output(["vcgencmd", "get_mem", "gpu"], stderr=subprocess.DEVNULL)
             stats["gpu_mem"] = res.decode().split("=")[1].strip()
-        except: 
-            stats["cpu_volts"] = 0
-            stats["cpu_clock"] = 0
-            stats["throttle_hex"] = "0x0"
-            stats["throttle_flags"] = ["ERR"]
-            stats["gpu_mem"] = "0M"
+        except: pass
 
         # 2. Memory
         try:
@@ -148,15 +156,32 @@ class SystemMonitor:
         try:
             with open("/proc/uptime", "r") as f:
                 stats["uptime_sys"] = int(float(f.read().split()[0]))
-        except: stats["uptime_sys"] = 0
+        except: pass
         stats["uptime_script"] = int(time.time() - self.start_time)
 
         try:
             res = subprocess.check_output(["hostname", "-I"], stderr=subprocess.DEVNULL)
             stats["ip_addr"] = res.decode().strip().split(" ")[0]
-        except: stats["ip_addr"] = "Unknown"
+        except: pass
 
-        # 5. Top Processes
+        # 5. Wireless Telemetry
+        # Format: "wlan0: 0000   62.  -48.  -256    0    0    0   1862   0   0"
+        try:
+            with open("/proc/net/wireless", "r") as f:
+                lines = f.readlines()
+                if len(lines) > 2:
+                    parts = lines[2].split()
+                    # Index 2: Link Quality (62.)
+                    # Index 3: Signal Level (-48.)
+                    # Index 8: Retry Count (1862)
+                    # Index 10: Missed Beacons (0)
+                    stats["wifi_link"] = int(float(parts[2]))
+                    stats["wifi_dbm"] = int(float(parts[3]))
+                    if len(parts) > 8: stats["wifi_retry"] = int(parts[8])
+                    if len(parts) > 10: stats["wifi_missed"] = int(parts[10])
+        except: pass
+
+        # 6. Top Processes
         try:
             cmd = ["ps", "-Ao", "pid,comm,pcpu,pmem", "--sort=-pcpu"]
             output = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode()
@@ -170,7 +195,7 @@ class SystemMonitor:
                     procs.append({"pid": parts[0], "name": name, "cpu": parts[2], "mem": parts[3]})
                     if len(procs) >= 5: break
             stats["processes"] = procs
-        except: stats["processes"] = []
+        except: pass
 
         self.cached_stats = stats
         self.last_slow_update = time.time()
@@ -222,7 +247,7 @@ class HybridNode:
         self.last_rssi_time = 0
         self.last_cam_activity = 0
         
-        # Jerk Calculation State
+        # Jerk Calculation
         self.last_accel = {"x":0, "y":0, "z":0}
         self.last_imu_time = time.time()
         
@@ -275,7 +300,7 @@ class HybridNode:
                         ax, ay, az = data["accel"]["x"], data["accel"]["y"], data["accel"]["z"]
                         data["total_g"] = round(math.sqrt(ax**2 + ay**2 + az**2) / 9.81, 2)
                         
-                        # Calculate Jerk (Derivative of Accel) m/s^3
+                        # Jerk
                         if dt > 0:
                             dj_x = (ax - self.last_accel["x"]) / dt
                             dj_y = (ay - self.last_accel["y"]) / dt
@@ -284,7 +309,6 @@ class HybridNode:
                             data["jerk"] = round(total_jerk, 1)
                         else:
                             data["jerk"] = 0.0
-                            
                         self.last_accel = {"x":ax, "y":ay, "z":az}
 
                     # 3. System Data

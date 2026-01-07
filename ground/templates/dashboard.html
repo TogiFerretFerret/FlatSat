@@ -150,10 +150,14 @@
             </div>
 
             <div class="panel">
-                <h2>Network (KB/s)</h2>
-                <div class="data-row"><span>RX (DOWN)</span><span class="data-val" id="net-rx">0.0</span></div>
-                <div class="data-row"><span>TX (UP)</span><span class="data-val" id="net-tx">0.0</span></div>
-                <div class="data-row" style="margin-top:5px;"><span>IP ADDR</span><span class="data-val" id="ip-addr">--</span></div>
+                <h2>Network & RF Link</h2>
+                <div class="data-row"><span>RX (DOWN)</span><span class="data-val" id="net-rx">0.0 KB/s</span></div>
+                <div class="data-row"><span>TX (UP)</span><span class="data-val" id="net-tx">0.0 KB/s</span></div>
+                <div class="data-row" style="margin-top:5px;"><span>WIFI RSSI</span><span class="data-val" id="wifi-rssi">0 dBm</span></div>
+                <div class="data-row"><span>PACKET RETRIES</span><span class="data-val" id="wifi-retry">0</span></div>
+                <div class="data-row"><span>MISSED BEACONS</span><span class="data-val" id="wifi-missed">0</span></div>
+                <div class="data-row"><span>BT RSSI</span><span class="data-val" id="bt-rssi">0 dBm</span></div>
+                <div class="data-row"><span>IP ADDR</span><span class="data-val" id="ip-addr">--</span></div>
             </div>
 
             <div class="panel">
@@ -187,8 +191,6 @@
             </div>
             
             <div class="panel" style="margin-top: 10px;">
-               <div class="data-row"><span>WIFI RSSI</span><span class="data-val" id="wifi-rssi">0 dBm</span></div>
-               <div class="data-row"><span>BT RSSI</span><span class="data-val" id="bt-rssi">0 dBm</span></div>
                <div class="data-row"><span>UPTIME</span><span class="data-val" id="uptime">0s</span></div>
             </div>
         </div>
@@ -278,8 +280,11 @@
                 }
 
                 // Network
-                document.getElementById('net-rx').innerText = (s.rx_kbps || 0).toFixed(1);
-                document.getElementById('net-tx').innerText = (s.tx_kbps || 0).toFixed(1);
+                document.getElementById('net-rx').innerText = (s.rx_kbps || 0).toFixed(1) + " KB/s";
+                document.getElementById('net-tx').innerText = (s.tx_kbps || 0).toFixed(1) + " KB/s";
+                document.getElementById('wifi-rssi').innerText = (s.wifi_dbm || 0) + " dBm";
+                document.getElementById('wifi-retry').innerText = s.wifi_retry || 0;
+                document.getElementById('wifi-missed').innerText = s.wifi_missed || 0;
 
                 document.getElementById('cpu-temp').innerText = s.cpu_temp + "°C";
                 updateBar('bar-temp', s.cpu_temp, 80);
@@ -296,7 +301,6 @@
                     updateBar('bar-disk', s.disk_percent, 100);
                 }
                 
-                document.getElementById('wifi-rssi').innerText = s.wifi_dbm + " dBm";
                 document.getElementById('uptime').innerText = new Date(s.uptime_script * 1000).toISOString().substr(11, 8);
 
                 // Update Process List
