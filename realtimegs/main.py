@@ -127,42 +127,44 @@ class PositionTracker:
         if not self.active: return
 
         # --- 4. PHYSICS INTEGRATION ---
-        # Calculate dynamic acceleration (movement) by removing the trained bias (gravity/offset)
+        
+        # Calculate residual acceleration (Raw - Bias)
         ax = world_raw["x"] - self.world_bias["x"]
         ay = world_raw["y"] - self.world_bias["y"]
         az = world_raw["z"] - self.world_bias["z"]
 
-        # --- CRITICAL FIX: MAGNITUDE-BASED ZUPT ---
-        # Calculate total movement intensity
-        dynamic_mag = math.sqrt(ax**2 + ay**2 + az**2)
+        # Magnitude of the disturbance (how much are we moving?)
+        disturbance = math.sqrt(ax**2 + ay**2 + az**2)
         
-        # Threshold: 0.35 m/s^2. 
-        # If total acceleration is less than this, we assume we are stationary.
-        # This prevents "gravity leak" (0.1 - 0.2 m/s^2) from integrating into infinity.
-        THRESHOLD = 0.35 
+        # THRESHOLD: 0.6 m/s^2 (approx 0.06 Gs)
+        # If disturbance is below this, we assume the device is still.
+        THRESHOLD = 0.6 
         
-        # Friction: 0.95.
-        # Constant drag prevents velocity from exploding if a bias persists.
-        FRICTION = 0.95 
-
-        if dynamic_mag < THRESHOLD:
-            # We are likely still. Kill velocity immediately.
+        if disturbance < THRESHOLD:
+            # --- ZUPT (Zero Velocity Update) & ADAPTIVE BIAS ---
+            # We are stationary. Kill velocity.
             self.vel = {"x": 0.0, "y": 0.0, "z": 0.0}
+            
+            # Slowly nudge bias towards current reading to fix drift
+            ADAPT_RATE = 0.01 
+            self.world_bias["x"] += ax * ADAPT_RATE
+            self.world_bias["y"] += ay * ADAPT_RATE
+            self.world_bias["z"] += az * ADAPT_RATE
+            
+            # Zero out acceleration for this frame
             ax, ay, az = 0, 0, 0
         else:
-            # We are moving. Integrate.
-            pass
+            # We are moving. Apply Friction to prevent runaway.
+            FRICTION = 0.90
+            self.vel["x"] *= FRICTION
+            self.vel["y"] *= FRICTION
+            self.vel["z"] *= FRICTION
 
         # Integrate Accel -> Velocity
         self.vel["x"] += ax * dt
         self.vel["y"] += ay * dt
         self.vel["z"] += az * dt
         
-        # Apply Drag
-        self.vel["x"] *= FRICTION
-        self.vel["y"] *= FRICTION
-        self.vel["z"] *= FRICTION
-
         # Integrate Velocity -> Position
         self.pos["x"] += self.vel["x"] * dt
         self.pos["y"] += self.vel["y"] * dt
