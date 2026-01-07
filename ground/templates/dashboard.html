@@ -197,73 +197,115 @@
     </div>
 
     <script>
+        // Optimization: Cache DOM elements to prevent repeated lookups
+        const ui = {
+            conn: document.getElementById('conn-status'),
+            // Sensors
+            ax: document.getElementById('ax'), ay: document.getElementById('ay'), az: document.getElementById('az'),
+            gx: document.getElementById('gx'), gy: document.getElementById('gy'), gz: document.getElementById('gz'),
+            mx: document.getElementById('mx'), my: document.getElementById('my'), mz: document.getElementById('mz'),
+            // Quats
+            qw: document.getElementById('qw'), qx: document.getElementById('qx'), qy: document.getElementById('qy'), qz: document.getElementById('qz'),
+            // Att
+            yaw: document.getElementById('att-yaw'), pitch: document.getElementById('att-pitch'), roll: document.getElementById('att-roll'),
+            total_g: document.getElementById('total-g'), jerk: document.getElementById('jerk'),
+            // Cam
+            cam_res: document.getElementById('cam-res'), cam_fps: document.getElementById('cam-fps'),
+            cam_exp: document.getElementById('cam-exp'), cam_gain: document.getElementById('cam-gain'),
+            cam_dgain: document.getElementById('cam-dgain'), cam_awb: document.getElementById('cam-awb'), cam_lens: document.getElementById('cam-lens'),
+            // Sys
+            cpu_volts: document.getElementById('cpu-volts'), cpu_clock: document.getElementById('cpu-clock'),
+            throttle_hex: document.getElementById('throttle-hex'), sys_threads: document.getElementById('sys-threads'),
+            gpu_mem: document.getElementById('gpu-mem'), imu_temp: document.getElementById('imu-temp'), ip_addr: document.getElementById('ip-addr'),
+            // Net
+            net_rx: document.getElementById('net-rx'), net_tx: document.getElementById('net-tx'),
+            wifi_rssi: document.getElementById('wifi-rssi'), wifi_retry: document.getElementById('wifi-retry'), wifi_missed: document.getElementById('wifi-missed'),
+            bt_rssi: document.getElementById('bt-rssi'), uptime: document.getElementById('uptime'),
+            // Text Elements for Bars/Lists
+            cpu_temp_txt: document.getElementById('cpu-temp'), cpu_load_txt: document.getElementById('cpu-load'),
+            ram_use_txt: document.getElementById('ram-use'), disk_use_txt: document.getElementById('disk-use'),
+            proc_list: document.getElementById('proc-list')
+        };
+
         function updateDisplay(d) {
-            document.getElementById('conn-status').innerText = d.status || "OFFLINE";
-            document.getElementById('conn-status').style.color = (d.status === "ONLINE") ? "#00ff41" : "red";
+            ui.conn.innerText = d.status || "OFFLINE";
+            ui.conn.style.color = (d.status === "ONLINE") ? "#00ff41" : "red";
 
             // SENSORS
-            if(d.accel) ['x','y','z'].forEach(k => document.getElementById('a'+k).innerText = d.accel[k].toFixed(2));
-            if(d.gyro) ['x','y','z'].forEach(k => document.getElementById('g'+k).innerText = d.gyro[k].toFixed(1));
-            if(d.mag) ['x','y','z'].forEach(k => document.getElementById('m'+k).innerText = d.mag[k].toFixed(0));
+            if(d.accel) {
+                ui.ax.innerText = d.accel.x.toFixed(2);
+                ui.ay.innerText = d.accel.y.toFixed(2);
+                ui.az.innerText = d.accel.z.toFixed(2);
+            }
+            if(d.gyro) {
+                ui.gx.innerText = d.gyro.x.toFixed(1);
+                ui.gy.innerText = d.gyro.y.toFixed(1);
+                ui.gz.innerText = d.gyro.z.toFixed(1);
+            }
+            if(d.mag) {
+                ui.mx.innerText = d.mag.x.toFixed(0);
+                ui.my.innerText = d.mag.y.toFixed(0);
+                ui.mz.innerText = d.mag.z.toFixed(0);
+            }
             
             // Quaternions
             if(d.quaternion) {
-                ['w','x','y','z'].forEach((k, i) => {
-                    const el = document.getElementById('q'+k);
-                    if(el) el.innerText = d.quaternion[i] !== undefined ? d.quaternion[i].toFixed(3) : "0.00";
-                });
+                ui.qw.innerText = d.quaternion[0] !== undefined ? d.quaternion[0].toFixed(3) : "0.00";
+                ui.qx.innerText = d.quaternion[1] !== undefined ? d.quaternion[1].toFixed(3) : "0.00";
+                ui.qy.innerText = d.quaternion[2] !== undefined ? d.quaternion[2].toFixed(3) : "0.00";
+                ui.qz.innerText = d.quaternion[3] !== undefined ? d.quaternion[3].toFixed(3) : "0.00";
             }
 
             if(d.attitude) {
-                document.getElementById('att-yaw').innerText = d.attitude.yaw.toFixed(0) + "°";
-                document.getElementById('att-pitch').innerText = d.attitude.pitch.toFixed(0) + "°";
-                document.getElementById('att-roll').innerText = d.attitude.roll.toFixed(0) + "°";
+                ui.yaw.innerText = d.attitude.yaw.toFixed(0) + "°";
+                ui.pitch.innerText = d.attitude.pitch.toFixed(0) + "°";
+                ui.roll.innerText = d.attitude.roll.toFixed(0) + "°";
             }
-            if(d.total_g) document.getElementById('total-g').innerText = d.total_g;
-            if(d.jerk !== undefined) document.getElementById('jerk').innerText = d.jerk.toFixed(1);
+            if(d.total_g) ui.total_g.innerText = d.total_g;
+            if(d.jerk !== undefined) ui.jerk.innerText = d.jerk.toFixed(1);
 
             // Camera Metadata
             if(d.cam_meta) {
                 if(d.cam_meta.res && d.cam_meta.res.includes('x')) {
-                    document.getElementById('cam-res').innerText = d.cam_meta.res;
-                    document.getElementById('cam-res').style.color = "#fff";
+                    ui.cam_res.innerText = d.cam_meta.res;
+                    ui.cam_res.style.color = "#fff";
                     
-                    document.getElementById('cam-fps').innerText = (d.cam_meta.fps || 0).toFixed(1) + " FPS";
+                    ui.cam_fps.innerText = (d.cam_meta.fps || 0).toFixed(1) + " FPS";
                     
                     const exp = d.cam_meta.exp_ms || 0;
-                    document.getElementById('cam-exp').innerText = exp.toFixed(1) + " ms";
-                    document.getElementById('cam-exp').style.color = (exp > 30) ? "#ffcc00" : "#fff";
+                    ui.cam_exp.innerText = exp.toFixed(1) + " ms";
+                    ui.cam_exp.style.color = (exp > 30) ? "#ffcc00" : "#fff";
                     
-                    document.getElementById('cam-gain').innerText = (d.cam_meta.a_gain || 1).toFixed(2) + "x";
-                    document.getElementById('cam-dgain').innerText = (d.cam_meta.d_gain || 1).toFixed(2) + "x";
+                    ui.cam_gain.innerText = (d.cam_meta.a_gain || 1).toFixed(2) + "x";
+                    ui.cam_dgain.innerText = (d.cam_meta.d_gain || 1).toFixed(2) + "x";
                     
                     const awb_r = d.cam_meta.awb_r || 0;
                     const awb_b = d.cam_meta.awb_b || 0;
-                    document.getElementById('cam-awb').innerText = `R:${awb_r.toFixed(2)} B:${awb_b.toFixed(2)}`;
+                    ui.cam_awb.innerText = `R:${awb_r.toFixed(2)} B:${awb_b.toFixed(2)}`;
                     
                     const states = ["IDLE", "SCAN", "LOCKED", "FAIL"];
                     const af_idx = d.cam_meta.af_state || 0;
                     const st = states[af_idx] || "UNKNOWN";
                     const lens = d.cam_meta.lens || 0.0;
-                    document.getElementById('cam-lens').innerText = `${lens.toFixed(2)} / ${st}`;
+                    ui.cam_lens.innerText = `${lens.toFixed(2)} / ${st}`;
                 } else {
                     let status = d.cam_meta.res || "INIT";
                     if(d.cam_meta.error) status = "ERR: " + d.cam_meta.error;
-                    document.getElementById('cam-res').innerText = status;
-                    document.getElementById('cam-res').style.color = "red";
+                    ui.cam_res.innerText = status;
+                    ui.cam_res.style.color = "red";
                 }
             }
 
             // SYSTEMS
             if(d.sys) {
                 const s = d.sys;
-                document.getElementById('cpu-volts').innerText = s.cpu_volts ? s.cpu_volts.toFixed(2) + " V" : "--";
-                document.getElementById('cpu-clock').innerText = s.cpu_clock + " MHz";
-                document.getElementById('throttle-hex').innerText = s.throttle_hex;
-                document.getElementById('sys-threads').innerText = s.active_threads || 0;
-                document.getElementById('gpu-mem').innerText = s.gpu_mem || "0M";
-                document.getElementById('imu-temp').innerText = (s.imu_temp || 0) + "°C";
-                document.getElementById('ip-addr').innerText = s.ip_addr || "--";
+                ui.cpu_volts.innerText = s.cpu_volts ? s.cpu_volts.toFixed(2) + " V" : "--";
+                ui.cpu_clock.innerText = s.cpu_clock + " MHz";
+                ui.throttle_hex.innerText = s.throttle_hex;
+                ui.sys_threads.innerText = s.active_threads || 0;
+                ui.gpu_mem.innerText = s.gpu_mem || "0M";
+                ui.imu_temp.innerText = (s.imu_temp || 0) + "°C";
+                ui.ip_addr.innerText = s.ip_addr || "--";
 
                 // Health Badges
                 if (s.throttle_flags) {
@@ -280,46 +322,45 @@
                 }
 
                 // Network
-                document.getElementById('net-rx').innerText = (s.rx_kbps || 0).toFixed(1) + " KB/s";
-                document.getElementById('net-tx').innerText = (s.tx_kbps || 0).toFixed(1) + " KB/s";
-                document.getElementById('wifi-rssi').innerText = (s.wifi_dbm || 0) + " dBm";
-                document.getElementById('wifi-retry').innerText = s.wifi_retry || 0;
-                document.getElementById('wifi-missed').innerText = s.wifi_missed || 0;
+                ui.net_rx.innerText = (s.rx_kbps || 0).toFixed(1) + " KB/s";
+                ui.net_tx.innerText = (s.tx_kbps || 0).toFixed(1) + " KB/s";
+                ui.wifi_rssi.innerText = (s.wifi_dbm || 0) + " dBm";
+                ui.wifi_retry.innerText = s.wifi_retry || 0;
+                ui.wifi_missed.innerText = s.wifi_missed || 0;
 
-                document.getElementById('cpu-temp').innerText = s.cpu_temp + "°C";
+                ui.cpu_temp_txt.innerText = s.cpu_temp + "°C";
                 updateBar('bar-temp', s.cpu_temp, 80);
                 
-                document.getElementById('cpu-load').innerText = s.cpu_load + "%";
+                ui.cpu_load_txt.innerText = s.cpu_load + "%";
                 updateBar('bar-load', s.cpu_load, 100);
 
                 if (s.ram_total_mb) {
-                    document.getElementById('ram-use').innerText = `${s.ram_used_mb} / ${s.ram_total_mb} MB`;
+                    ui.ram_use_txt.innerText = `${s.ram_used_mb} / ${s.ram_total_mb} MB`;
                     updateBar('bar-ram', s.ram_percent, 100);
                 }
                 if (s.disk_total_gb) {
-                    document.getElementById('disk-use').innerText = `${s.disk_used_gb} / ${s.disk_total_gb} GB`;
+                    ui.disk_use_txt.innerText = `${s.disk_used_gb} / ${s.disk_total_gb} GB`;
                     updateBar('bar-disk', s.disk_percent, 100);
                 }
                 
-                document.getElementById('uptime').innerText = new Date(s.uptime_script * 1000).toISOString().substr(11, 8);
+                ui.uptime.innerText = new Date(s.uptime_script * 1000).toISOString().substr(11, 8);
 
-                // Update Process List
+                // Optimization: Batch HTML update to prevent reflow trashing
                 if (s.processes) {
-                    const tbody = document.getElementById('proc-list');
-                    tbody.innerHTML = "";
+                    let html = "";
                     s.processes.forEach(p => {
                         const isHigh = parseFloat(p.cpu) > 50;
-                        const row = `<tr>
+                        html += `<tr>
                             <td>${p.pid}</td>
                             <td style="color:#fff">${p.name}</td>
                             <td class="${isHigh ? 'high-cpu' : ''}">${p.cpu}%</td>
                             <td>${p.mem}%</td>
                         </tr>`;
-                        tbody.innerHTML += row;
                     });
+                    ui.proc_list.innerHTML = html;
                 }
             }
-            if(d.rssi) document.getElementById('bt-rssi').innerText = d.rssi + " dBm";
+            if(d.rssi) ui.bt_rssi.innerText = d.rssi + " dBm";
         }
 
         function updateBar(id, val, max) {
@@ -353,12 +394,13 @@
             } catch(e) {}
         }
 
+        // Optimization: Reduced poll rate to 4Hz (250ms) to save CPU cycle and prevent browser lag
         setInterval(async () => { 
             try { 
                 let res = await fetch('/api/telemetry'); 
                 updateDisplay(await res.json()); 
             } catch {} 
-        }, 100);
+        }, 250);
         
         loadGal();
     </script>
