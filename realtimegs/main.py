@@ -166,6 +166,10 @@ class HybridNode:
         self.running = True
         self.cached_rssi = 0
         self.last_rssi_time = 0
+        
+        # Track camera activity to force updates
+        self.last_cam_activity = 0
+        
         self.bt_thread = threading.Thread(target=self.run_bt_server)
         self.bt_thread.daemon = True
         self.bt_thread.start()
@@ -195,7 +199,20 @@ class HybridNode:
                 threading.Thread(target=self.listen_commands, args=(client,), daemon=True).start()
 
                 while self.running:
-                    # 1. Gather Sensor Data
+                    now = time.time()
+                    
+                    # 1. CAMERA HEARTBEAT (The Fix)
+                    # If camera hasn't been accessed in 0.2s, force a tiny capture to update ISP
+                    if now - self.last_cam_activity > 0.2:
+                        try:
+                            # Capture to devnull basically, just to tick the ISP
+                            # We use a very small stream to keep it fast
+                            with cam_lock:
+                                cam.picam2.capture_file(io.BytesIO(), format="jpeg")
+                            self.last_cam_activity = now
+                        except: pass
+
+                    # 2. Gather Sensor Data
                     data = imu.get_data() if imu else {"status": "no_imu"}
                     
                     if data["status"] == "ONLINE":
@@ -204,19 +221,17 @@ class HybridNode:
                         ax, ay, az = data["accel"]["x"], data["accel"]["y"], data["accel"]["z"]
                         data["total_g"] = round(math.sqrt(ax**2 + ay**2 + az**2) / 9.81, 2)
 
-                    # 2. System Data
+                    # 3. System Data
                     sys_data = sys_mon.get_quick_stats()
                     sys_data.update(sys_mon.get_slow_stats())
                     data["sys"] = sys_data
                     
-                    # 3. Dynamic Camera Metadata (Deep Hardware Level)
+                    # 4. Dynamic Camera Metadata
                     try:
                         meta = cam.picam2.metadata
                         if meta:
-                            # FrameDuration is in microseconds. 1e6 / duration = FPS
                             frame_dur = meta.get("FrameDuration", 33333)
                             fps = 1000000.0 / frame_dur if frame_dur > 0 else 0
-                            
                             gains = meta.get("ColourGains", (0.0, 0.0))
                             
                             data["cam_meta"] = {
@@ -230,12 +245,14 @@ class HybridNode:
                                 "lens": round(meta.get("LensPosition", 0.0), 2),
                                 "awb_r": round(gains[0], 2),
                                 "awb_b": round(gains[1], 2),
-                                "af_state": int(meta.get("AfState", 0)) # 0=Idle, 1=Scan, 2=Success
+                                "af_state": int(meta.get("AfState", 0))
                             }
+                        else:
+                            data["cam_meta"] = {"res": "WAITING"}
                     except Exception: 
                         data["cam_meta"] = {"res": "ERR"}
                     
-                    # 4. Transmit
+                    # 5. Transmit
                     data["rssi"] = self.get_rssi(addr[0])
                     msg = json.dumps(data).encode('utf-8')
                     header = struct.pack("!4sI", b"TELE", len(msg))
@@ -256,10 +273,20 @@ class HybridNode:
 
 @app.route('/stream')
 def stream():
+    # Helper to signal activity to the heartbeat loop
+    def signal_activity():
+        # Accessing global node instance is tricky here without passing it, 
+        # but the main loop updates last_cam_activity anyway if it runs.
+        # However, we update the timestamp here to prevent double-captures.
+        if 'node' in globals():
+            node.last_cam_activity = time.time()
+
     def generate():
         stream = io.BytesIO()
         while True:
-            with cam_lock: cam.picam2.capture_file(stream, format="jpeg")
+            with cam_lock: 
+                cam.picam2.capture_file(stream, format="jpeg")
+                signal_activity()
             stream.seek(0)
             frame = stream.read()
             stream.seek(0)
@@ -275,6 +302,9 @@ def snapshot():
         configure_camera(4608, 2592)
         cam.picam2.capture_file(stream, format="jpeg")
         configure_camera(1920, 1080)
+        # Update timestamp to pause heartbeat momentarily
+        if 'node' in globals(): node.last_cam_activity = time.time()
+        
     stream.seek(0)
     return send_file(stream, mimetype='image/jpeg', download_name='snap.jpg')
 
