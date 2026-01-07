@@ -18,35 +18,35 @@
             color: var(--text-main);
             font-family: 'Courier New', monospace;
             margin: 0;
-            padding: 10px; /* Reduced padding */
+            padding: 10px;
             height: 100vh;
             display: flex;
             flex-direction: column;
             box-sizing: border-box;
-            font-size: 0.9rem; /* Compact font base */
+            font-size: 0.9rem;
         }
         header {
             border-bottom: 2px solid var(--text-main);
-            margin-bottom: 10px; /* Reduced margin */
-            padding-bottom: 5px; /* Reduced padding */
+            margin-bottom: 10px;
+            padding-bottom: 5px;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
-        h1 { margin: 0; font-size: 1.2rem; letter-spacing: 2px; } /* Smaller header */
+        h1 { margin: 0; font-size: 1.2rem; letter-spacing: 2px; }
         
         .grid-container {
             display: grid;
             grid-template-columns: 3fr 1fr;
-            gap: 10px; /* Tighter gap */
+            gap: 10px;
             flex-grow: 1;
-            min-height: 0; /* Vital for nested scrolling */
+            min-height: 0;
         }
         
         .panel {
             background: var(--panel-bg);
             border: 1px solid var(--border);
-            padding: 10px; /* Tighter panel padding */
+            padding: 10px;
             border-radius: 4px;
             display: flex;
             flex-direction: column;
@@ -56,7 +56,7 @@
             margin-top: 0;
             border-bottom: 1px solid var(--border);
             padding-bottom: 5px;
-            font-size: 0.9rem; /* Smaller section headers */
+            font-size: 0.9rem;
             color: #fff;
             margin-bottom: 10px;
         }
@@ -116,14 +116,14 @@
         .right-column {
             display: flex;
             flex-direction: column;
-            gap: 10px; /* Tighter gap */
-            overflow: hidden; /* Prevent spillover */
+            gap: 10px;
+            overflow: hidden;
         }
 
         /* Stats */
-        .stat-group { margin-bottom: 10px; } /* Reduced spacing */
+        .stat-group { margin-bottom: 10px; }
         .stat-label { color: #888; font-size: 0.7rem; display: block; }
-        .stat-value { font-size: 1.0rem; font-weight: bold; color: #fff; } /* Smaller numbers */
+        .stat-value { font-size: 1.0rem; font-weight: bold; color: #fff; }
         .stat-unit { font-size: 0.7rem; color: #888; }
         
         .axis-grid {
@@ -145,7 +145,7 @@
             flex-grow: 1;
             overflow-y: auto;
             display: grid;
-            grid-template-columns: 1fr; /* Single column for single image */
+            grid-template-columns: 1fr;
             gap: 5px;
             padding-right: 5px;
         }
@@ -165,7 +165,7 @@
             color: #aaa;
             padding: 5px;
             font-size: 0.6rem;
-            height: 80px; /* Fixed height as requested */
+            height: 80px;
             overflow-y: auto;
             border: 1px solid #333;
             margin-top: 5px;
@@ -182,6 +182,16 @@
         }
         .status-online { background-color: #00ff41; box-shadow: 0 0 5px #00ff41; }
         .status-offline { background-color: #ff0000; }
+        
+        /* Health Badges */
+        .badge {
+            background: #222;
+            padding: 3px 5px;
+            font-size: 0.8rem;
+            border: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+        }
     </style>
 </head>
 <body>
@@ -221,16 +231,33 @@
                 <h2><i class="fas fa-microchip"></i> AVIONICS</h2>
                 
                 <div class="stat-group">
-                    <span class="stat-label">SIGNAL (RSSI)</span>
-                    <span id="rssi" class="stat-value">--</span> <span class="stat-unit">dBm</span>
+                    <span class="stat-label">CONNECTIVITY</span>
+                    <div class="axis-grid" style="grid-template-columns: 1fr 1fr;">
+                        <div class="axis-box">
+                            <span class="axis-name">BT RSSI</span><br>
+                            <span id="rssi" class="stat-value" style="font-size:0.9rem">--</span><span class="stat-unit">dBm</span>
+                        </div>
+                        <div class="axis-box">
+                            <span class="axis-name">WIFI</span><br>
+                            <span id="sys-wifi" class="stat-value" style="font-size:0.9rem">--</span><span class="stat-unit">dBm</span>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="stat-group">
                     <span class="stat-label">SYSTEM HEALTH</span>
-                    <div class="axis-grid">
+                    <div class="axis-grid" style="grid-template-columns: 1fr 1fr 1fr;">
                         <div class="axis-box"><span class="axis-name">CPU</span><br><span id="sys-cpu">0</span>%</div>
                         <div class="axis-box"><span class="axis-name">RAM</span><br><span id="sys-mem">0</span>%</div>
                         <div class="axis-box"><span class="axis-name">DISK</span><br><span id="sys-disk">0</span>%</div>
+                    </div>
+                    <div class="badge" style="margin-top:4px;">
+                        <span style="color:#888;">UPTIME</span>
+                        <span id="sys-uptime" style="color:#fff;">00:00:00</span>
+                    </div>
+                    <div class="badge" style="margin-top:2px;">
+                        <span style="color:#888;">STATUS</span>
+                        <span id="sys-throttle" style="color:#0f0; font-weight:bold;">--</span>
                     </div>
                 </div>
 
@@ -285,15 +312,6 @@
                     </div>
                 </div>
 
-                <div class="stat-group">
-                    <span class="stat-label">ORIENTATION (EULER)</span>
-                    <div class="axis-grid">
-                        <div class="axis-box"><span class="axis-name">ROLL</span><br><span id="roll">0</span>°</div>
-                        <div class="axis-box"><span class="axis-name">PITCH</span><br><span id="pitch">0</span>°</div>
-                        <div class="axis-box"><span class="axis-name">YAW</span><br><span id="yaw">0</span>°</div>
-                    </div>
-                </div>
-
                 <span class="stat-label">RAW TELEMETRY</span>
                 <pre id="tel-raw">Waiting for packets...</pre>
             </div>
@@ -313,6 +331,14 @@
         const statusDot = document.querySelector('.status-dot');
         const statusText = document.getElementById('status-text');
 
+        function formatTime(seconds) {
+            if (!seconds) return "00:00:00";
+            const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
+            const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+            const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+            return `${h}:${m}:${s}`;
+        }
+
         function updateDisplay(data) {
             // Raw JSON
             document.getElementById('tel-raw').innerText = JSON.stringify(data, null, 2);
@@ -327,13 +353,27 @@
                 if(data.status) statusText.innerText = data.status;
             }
 
-            // RSSI
+            // RSSI & WiFi
             if (data.rssi !== undefined) document.getElementById('rssi').innerText = data.rssi;
+            if (data.wifi_signal !== undefined) document.getElementById('sys-wifi').innerText = data.wifi_signal;
 
-            // System Health (New)
+            // System Health
             if (data.cpu_load !== undefined) document.getElementById('sys-cpu').innerText = data.cpu_load;
             if (data.mem_percent !== undefined) document.getElementById('sys-mem').innerText = data.mem_percent;
             if (data.disk_percent !== undefined) document.getElementById('sys-disk').innerText = data.disk_percent;
+            if (data.uptime !== undefined) document.getElementById('sys-uptime').innerText = formatTime(data.uptime);
+            
+            // Throttle Status
+            if (data.throttled !== undefined) {
+                const throt = document.getElementById('sys-throttle');
+                if (data.throttled === '0x0') {
+                    throt.innerText = "NOMINAL";
+                    throt.style.color = "#00ff41";
+                } else {
+                    throt.innerText = "WARN: " + data.throttled;
+                    throt.style.color = "red";
+                }
+            }
 
             // Thermals
             if (data.temp !== undefined) document.getElementById('temp-imu').innerText = data.temp.toFixed(1);
@@ -346,11 +386,8 @@
                 document.getElementById('az').innerText = data.accel.z.toFixed(2);
             }
 
-            // Gyro (New)
+            // Gyro
             if (data.gyro) {
-                // Assuming rad/s, converting to deg/s for display might be nicer, 
-                // but if raw is deg/s (LSM default in some libs), we just show it.
-                // Let's assume raw is raw.
                 document.getElementById('gx').innerText = data.gyro.x.toFixed(1);
                 document.getElementById('gy').innerText = data.gyro.y.toFixed(1);
                 document.getElementById('gz').innerText = data.gyro.z.toFixed(1);
@@ -369,13 +406,6 @@
                 document.getElementById('qx').innerText = data.quaternion[1].toFixed(3);
                 document.getElementById('qy').innerText = data.quaternion[2].toFixed(3);
                 document.getElementById('qz').innerText = data.quaternion[3].toFixed(3);
-            }
-
-            // Orientation
-            if (data.orientation_euler) {
-                document.getElementById('roll').innerText = data.orientation_euler.roll.toFixed(0);
-                document.getElementById('pitch').innerText = data.orientation_euler.pitch.toFixed(0);
-                document.getElementById('yaw').innerText = data.orientation_euler.yaw.toFixed(0);
             }
         }
 
@@ -423,7 +453,6 @@
                 container.innerHTML = '';
                 files.forEach(f => {
                     let img = document.createElement('img');
-                    // Add timestamp to force reload cache
                     img.src = '/captures/' + f + '?t=' + new Date().getTime();
                     img.className = 'thumb';
                     img.title = f;
@@ -433,7 +462,6 @@
             } catch(e) {}
         }
 
-        // Poll API every 100ms
         setInterval(async () => {
             try {
                 const response = await fetch('/api/telemetry');
@@ -447,7 +475,6 @@
             }
         }, 100);
 
-        // Initial Gallery Load
         updateGallery();
     </script>
 </body>
