@@ -25,19 +25,30 @@ cam = CameraSystem()
 imu = IMU()
 cam_lock = threading.Lock() # Lock to prevent stream/snap collision
 
-# --- RECONFIGURE CAMERA FOR MAX RES (4.6K) ---
-print("[System] Reconfiguring Camera for Full Sensor Mode...")
-try:
-    cam.picam2.stop()
-    # FULL SENSOR RESOLUTION (Sony IMX708)
-    config = cam.picam2.create_video_configuration(
-        main={"size": (1920, 1080), "format": "RGB888"}
-    )
-    cam.picam2.configure(config)
-    cam.picam2.start()
-    print("[System] Camera Active at 1920x1080 (FHD).")
-except Exception as e:
-    print(f"[System] Camera Reconfig Failed: {e}")
+def configure_camera(width, height):
+    """
+    Safely reconfigures the Picamera2 instance for a specific resolution.
+    """
+    print(f"[System] Switching Camera to {width}x{height}...")
+    try:
+        # Stop if running
+        try:
+            cam.picam2.stop()
+        except:
+            pass # Already stopped
+
+        # Create new config
+        config = cam.picam2.create_video_configuration(
+            main={"size": (width, height), "format": "RGB888"}
+        )
+        cam.picam2.configure(config)
+        cam.picam2.start()
+        print(f"[System] Camera Active at {width}x{height}.")
+    except Exception as e:
+        print(f"[System] Camera Config Failed: {e}")
+
+# --- STARTUP: Set to 1080p for Smooth Streaming ---
+configure_camera(1920, 1080)
 
 # Flask App for Video
 app = Flask(__name__)
@@ -65,7 +76,6 @@ class HybridNode:
         """Get Raspberry Pi CPU Temperature"""
         try:
             with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
-                # Value is in millidegrees (e.g., 45000 = 45.0C)
                 return float(f.read()) / 1000.0
         except:
             return 0.0
@@ -119,15 +129,17 @@ class HybridNode:
 
 @app.route('/stream')
 def stream():
-    """High Bandwidth Video Stream over Wi-Fi."""
+    """
+    High Bandwidth Video Stream over Wi-Fi (Runs at 1080p).
+    """
     def generate():
         stream = io.BytesIO()
         while True:
-            # Capture to RAM
             with cam_lock:
+                # Capture frame (uses current 1080p config)
                 cam.picam2.capture_file(stream, format="jpeg")
             
-            # Read the bytes
+            # Read bytes
             stream.seek(0)
             frame = stream.read()
             
@@ -146,10 +158,28 @@ def stream():
 
 @app.route('/snapshot')
 def snapshot():
-    """Captures a SINGLE High-Res image."""
+    """
+    Captures a SINGLE High-Res (4.6K) image.
+    1. Lock Camera (Pauses stream).
+    2. Switch to 4.6K.
+    3. Capture.
+    4. Switch back to 1080p.
+    5. Unlock (Resumes stream).
+    """
     stream = io.BytesIO()
+    
     with cam_lock:
+        print("[Snap] Switching to 4.6K...")
+        configure_camera(4608, 2592)
+        
+        # Optional: Sleep briefly to let auto-exposure settle on the new resolution
+        # time.sleep(0.5) 
+        
+        print("[Snap] Capturing...")
         cam.picam2.capture_file(stream, format="jpeg")
+        
+        print("[Snap] Reverting to 1080p...")
+        configure_camera(1920, 1080)
     
     stream.seek(0)
     return send_file(stream, mimetype='image/jpeg', download_name='snap.jpg')
@@ -158,9 +188,10 @@ if __name__ == "__main__":
     node = HybridNode()
     
     print("==============================================")
-    print(f"   HYBRID NODE ACTIVE (FHD)")
+    print(f"   HYBRID NODE ACTIVE")
     print(f"   1. Bluetooth: Telemetry & Command Plane")
-    print(f"   2. Wi-Fi: Video Data Plane (http://<PI_IP>:{HTTP_PORT}/stream)")
+    print(f"   2. Wi-Fi: Video Plane (1080p Stream / 4.6K Snap)")
+    print(f"   http://<PI_IP>:{HTTP_PORT}/stream")
     print("==============================================")
     
     app.run(host='0.0.0.0', port=HTTP_PORT, threaded=True)
