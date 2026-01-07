@@ -29,7 +29,16 @@ cam_lock = threading.Lock()
 # --- SYSTEM MONITOR ---
 class SystemMonitor:
     def __init__(self):
-        self.cached_stats = {}
+        # FIX: Initialize with FULL DEFAULTS so the first calls don't return {}
+        self.cached_stats = {
+            "cpu_volts": 0, "cpu_clock": 0, "throttle_hex": "0x0", "throttle_flags": ["INIT"],
+            "gpu_mem": "0M", 
+            "ram_total_mb": 0, "ram_used_mb": 0, "ram_percent": 0,
+            "disk_total_gb": 0, "disk_used_gb": 0, "disk_percent": 0,
+            "uptime_sys": 0, "uptime_script": 0, "ip_addr": "Unknown",
+            "wifi_dbm": 0, "wifi_link": 0, "wifi_retry": 0, "wifi_missed": 0,
+            "processes": []
+        }
         self.last_slow_update = 0
         self.start_time = time.time()
         
@@ -88,19 +97,11 @@ class SystemMonitor:
         return stats
 
     def get_slow_stats(self):
+        # Return cached if too soon (prevents slamming the OS)
         if time.time() - self.last_slow_update < 2.0:
             return self.cached_stats
         
-        # Initialize defaults to prevent "undefined" on dashboard
-        stats = {
-            "cpu_volts": 0, "cpu_clock": 0, "throttle_hex": "0x0", "throttle_flags": [],
-            "gpu_mem": "0M", 
-            "ram_total_mb": 0, "ram_used_mb": 0, "ram_percent": 0,
-            "disk_total_gb": 0, "disk_used_gb": 0, "disk_percent": 0,
-            "uptime_sys": 0, "uptime_script": 0, "ip_addr": "Unknown",
-            "wifi_dbm": 0, "wifi_link": 0, "wifi_retry": 0, "wifi_missed": 0,
-            "processes": []
-        }
+        stats = self.cached_stats.copy()
         
         try:
             res = subprocess.check_output(["vcgencmd", "measure_volts", "core"], stderr=subprocess.DEVNULL)
@@ -230,15 +231,11 @@ def assemble_telemetry():
     data["status"] = "ONLINE"
     
     if data["status"] == "ONLINE" and "accel" in data:
-        # Attitude
         att = calculate_attitude(data["accel"], data["mag"])
         data["attitude"] = att
-        
-        # Dynamics
         ax, ay, az = data["accel"]["x"], data["accel"]["y"], data["accel"]["z"]
         data["total_g"] = round(math.sqrt(ax**2 + ay**2 + az**2) / 9.81, 2)
         
-        # Jerk Calc
         now = time.time()
         dt = now - last_imu_time
         if dt > 0:
@@ -360,8 +357,6 @@ def stream():
             yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
             time.sleep(0.03)
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
-# Removed /telemetry_stream route to enforce BT telemetry
 
 @app.route('/snapshot', methods=['POST'])
 def snapshot():
