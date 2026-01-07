@@ -9,10 +9,12 @@
         :root { --bg: #050505; --panel: #111; --border: #333; --text: #00ff41; --dim: #00661a; --warn: #ffcc00; --alert: #ff0000; }
         body { background: var(--bg); color: var(--text); font-family: 'Consolas', 'Courier New', monospace; padding: 10px; margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; }
         
+        /* Layout */
         header { display: flex; justify-content: space-between; border-bottom: 2px solid var(--text); margin-bottom: 10px; padding-bottom: 5px; }
-        .main-grid { display: grid; grid-template-columns: 250px 1fr 250px; gap: 10px; flex-grow: 1; min-height: 0; }
+        .main-grid { display: grid; grid-template-columns: 260px 1fr 260px; gap: 10px; flex-grow: 1; min-height: 0; }
         .col { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
         
+        /* Components */
         .panel { background: var(--panel); border: 1px solid var(--border); padding: 8px; }
         h2 { margin: 0 0 5px 0; font-size: 0.9em; color: #fff; border-bottom: 1px solid var(--dim); text-transform: uppercase; letter-spacing: 1px; }
         
@@ -25,10 +27,12 @@
         .lbl { display: block; font-size: 0.6em; color: #888; }
         .val { font-size: 0.9em; font-weight: bold; }
 
+        /* Video */
         .vid-container { flex-grow: 1; background: #000; border: 1px solid var(--border); position: relative; display: flex; align-items: center; justify-content: center; }
         img { max-width: 100%; max-height: 100%; }
         .overlay { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 5px; font-size: 0.8em; border: 1px solid var(--dim); }
 
+        /* Bars */
         .bar-bg { width: 100%; height: 6px; background: #222; margin-top: 2px; }
         .bar-fill { height: 100%; background: var(--text); width: 0%; transition: width 0.2s; }
         .bar-warn { background: var(--warn); }
@@ -37,10 +41,15 @@
         .btn { background: var(--panel); border: 1px solid var(--text); color: var(--text); width: 100%; padding: 10px; cursor: pointer; font-weight: bold; margin-top: 5px; }
         .btn:hover { background: var(--dim); color: #fff; }
         
+        /* Process Table */
         table { width: 100%; border-collapse: collapse; font-size: 0.7em; }
         th { text-align: left; color: #888; border-bottom: 1px solid #333; }
         td { padding: 2px 0; }
         .high-cpu { color: var(--warn); }
+        
+        /* Health Badges */
+        .badge { display: inline-block; padding: 2px 6px; border-radius: 2px; font-size: 0.7em; margin-right: 2px; background: #222; color: #888; }
+        .badge.active { background: var(--alert); color: #fff; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -53,11 +62,16 @@
         <!-- LEFT COLUMN: DYNAMICS -->
         <div class="col">
             <div class="panel">
-                <h2>Attitude</h2>
+                <h2>Attitude & Motion</h2>
                 <div class="data-row"><span>HEADING</span><span class="data-val" id="att-yaw">0°</span></div>
                 <div class="data-row"><span>PITCH</span><span class="data-val" id="att-pitch">0°</span></div>
                 <div class="data-row"><span>ROLL</span><span class="data-val" id="att-roll">0°</span></div>
-                <div class="data-row" style="margin-top:5px;"><span>TOTAL G</span><span class="data-val" id="total-g">1.00</span></div>
+                <div class="data-row" style="margin-top:5px; border-top:1px solid #333; padding-top:2px;">
+                    <span>TOTAL G</span><span class="data-val" id="total-g">1.00</span>
+                </div>
+                <div class="data-row">
+                    <span>JERK (m/s³)</span><span class="data-val" id="jerk">0.0</span>
+                </div>
             </div>
 
             <div class="panel">
@@ -101,7 +115,7 @@
         <!-- MIDDLE: OPTICAL -->
         <div class="col">
             <div class="vid-container">
-                <img src="{{ video_url }}" onerror="this.style.display='none'">
+                <img src="/video_feed" onerror="this.style.display='none'">
                 <div class="overlay">LIVE OPTICAL FEED [1080p]</div>
             </div>
             <button class="btn" onclick="snap()">ACQUIRE HIGH-RES TARGET (4.6K)</button>
@@ -111,10 +125,17 @@
         <!-- RIGHT: SYSTEMS ENGINEERING -->
         <div class="col">
             <div class="panel">
-                <h2>Power & Clock</h2>
+                <h2>Health & Power</h2>
                 <div class="data-row"><span>CORE VOLTS</span><span class="data-val" id="cpu-volts">0.00 V</span></div>
                 <div class="data-row"><span>CPU CLOCK</span><span class="data-val" id="cpu-clock">0 MHz</span></div>
-                <div class="data-row"><span>THROTTLE</span><span class="data-val" id="throttle">0x0</span></div>
+                <div class="data-row"><span>THREADS</span><span class="data-val" id="sys-threads">0</span></div>
+                <div class="data-row"><span>THROTTLE</span><span class="data-val" id="throttle-hex">0x0</span></div>
+                <div id="health-badges" style="margin-top:5px; display:flex; flex-wrap:wrap; gap:2px;">
+                    <span id="flag-uv" class="badge">UNDERVOLT</span>
+                    <span id="flag-freq" class="badge">FREQ_CAP</span>
+                    <span id="flag-throt" class="badge">THROTTLED</span>
+                    <span id="flag-temp" class="badge">OVERHEAT</span>
+                </div>
             </div>
 
             <div class="panel">
@@ -129,10 +150,19 @@
             </div>
 
             <div class="panel">
+                <h2>Network (KB/s)</h2>
+                <div class="data-row"><span>RX (DOWN)</span><span class="data-val" id="net-rx">0.0</span></div>
+                <div class="data-row"><span>TX (UP)</span><span class="data-val" id="net-tx">0.0</span></div>
+                <div class="data-row" style="margin-top:5px;"><span>IP ADDR</span><span class="data-val" id="ip-addr">--</span></div>
+            </div>
+
+            <div class="panel">
                 <h2>Thermals & Load</h2>
                 <div class="data-row"><span>CPU TEMP</span><span class="data-val" id="cpu-temp">0°C</span></div>
                 <div class="bar-bg"><div id="bar-temp" class="bar-fill" style="width:0%"></div></div>
                 
+                <div class="data-row" style="margin-top:2px;"><span>IMU TEMP</span><span class="data-val" id="imu-temp">0°C</span></div>
+
                 <div class="data-row" style="margin-top:5px;"><span>CPU LOAD</span><span class="data-val" id="cpu-load">0%</span></div>
                 <div class="bar-bg"><div id="bar-load" class="bar-fill" style="width:0%"></div></div>
             </div>
@@ -141,6 +171,8 @@
                 <h2>Memory & Storage</h2>
                 <div class="data-row"><span>RAM USE</span><span class="data-val" id="ram-use">0 / 0 MB</span></div>
                 <div class="bar-bg"><div id="bar-ram" class="bar-fill" style="width:0%"></div></div>
+                
+                <div class="data-row" style="margin-top:2px;"><span>GPU MEM</span><span class="data-val" id="gpu-mem">0M</span></div>
                 
                 <div class="data-row" style="margin-top:5px;"><span>DISK USE</span><span class="data-val" id="disk-use">0 / 0 GB</span></div>
                 <div class="bar-bg"><div id="bar-disk" class="bar-fill" style="width:0%"></div></div>
@@ -153,12 +185,11 @@
                     <tbody id="proc-list"></tbody>
                 </table>
             </div>
-
-            <div class="panel">
-                <h2>Connectivity</h2>
-                <div class="data-row"><span>WIFI RSSI</span><span class="data-val" id="wifi-rssi">0 dBm</span></div>
-                <div class="data-row"><span>BT RSSI</span><span class="data-val" id="bt-rssi">0 dBm</span></div>
-                <div class="data-row"><span>UPTIME</span><span class="data-val" id="uptime">0s</span></div>
+            
+            <div class="panel" style="margin-top: 10px;">
+               <div class="data-row"><span>WIFI RSSI</span><span class="data-val" id="wifi-rssi">0 dBm</span></div>
+               <div class="data-row"><span>BT RSSI</span><span class="data-val" id="bt-rssi">0 dBm</span></div>
+               <div class="data-row"><span>UPTIME</span><span class="data-val" id="uptime">0s</span></div>
             </div>
         </div>
     </div>
@@ -187,27 +218,22 @@
                 document.getElementById('att-roll').innerText = d.attitude.roll.toFixed(0) + "°";
             }
             if(d.total_g) document.getElementById('total-g').innerText = d.total_g;
+            if(d.jerk !== undefined) document.getElementById('jerk').innerText = d.jerk.toFixed(1);
 
-            // Camera Metadata (Robust Handling)
+            // Camera Metadata
             if(d.cam_meta) {
-                // Ensure we have active data before trying to access properties
-                // res usually contains "1920x1080" when active, or "WAITING"/"ERR" when not.
                 if(d.cam_meta.res && d.cam_meta.res.includes('x')) {
                     document.getElementById('cam-res').innerText = d.cam_meta.res;
-                    document.getElementById('cam-res').style.color = "#fff"; // Reset color
+                    document.getElementById('cam-res').style.color = "#fff";
                     
-                    const fps = d.cam_meta.fps || 0;
-                    document.getElementById('cam-fps').innerText = fps.toFixed(1) + " FPS";
+                    document.getElementById('cam-fps').innerText = (d.cam_meta.fps || 0).toFixed(1) + " FPS";
                     
                     const exp = d.cam_meta.exp_ms || 0;
                     document.getElementById('cam-exp').innerText = exp.toFixed(1) + " ms";
                     document.getElementById('cam-exp').style.color = (exp > 30) ? "#ffcc00" : "#fff";
                     
-                    const gain = d.cam_meta.a_gain || 1;
-                    document.getElementById('cam-gain').innerText = gain.toFixed(2) + "x";
-                    
-                    const d_gain = d.cam_meta.d_gain || 1;
-                    document.getElementById('cam-dgain').innerText = d_gain.toFixed(2) + "x";
+                    document.getElementById('cam-gain').innerText = (d.cam_meta.a_gain || 1).toFixed(2) + "x";
+                    document.getElementById('cam-dgain').innerText = (d.cam_meta.d_gain || 1).toFixed(2) + "x";
                     
                     const awb_r = d.cam_meta.awb_r || 0;
                     const awb_b = d.cam_meta.awb_b || 0;
@@ -219,11 +245,8 @@
                     const lens = d.cam_meta.lens || 0.0;
                     document.getElementById('cam-lens').innerText = `${lens.toFixed(2)} / ${st}`;
                 } else {
-                    // Fallback if data isn't ready or errored
                     let status = d.cam_meta.res || "INIT";
-                    if(d.cam_meta.error) {
-                        status = "ERR: " + d.cam_meta.error; // Show the actual error from Python
-                    }
+                    if(d.cam_meta.error) status = "ERR: " + d.cam_meta.error;
                     document.getElementById('cam-res').innerText = status;
                     document.getElementById('cam-res').style.color = "red";
                 }
@@ -234,10 +257,29 @@
                 const s = d.sys;
                 document.getElementById('cpu-volts').innerText = s.cpu_volts ? s.cpu_volts.toFixed(2) + " V" : "--";
                 document.getElementById('cpu-clock').innerText = s.cpu_clock + " MHz";
-                
-                const tObj = document.getElementById('throttle');
-                tObj.innerText = s.throttle_hex;
-                tObj.style.color = (s.throttle_hex !== "0x0") ? "red" : "#00ff41";
+                document.getElementById('throttle-hex').innerText = s.throttle_hex;
+                document.getElementById('sys-threads').innerText = s.active_threads || 0;
+                document.getElementById('gpu-mem').innerText = s.gpu_mem || "0M";
+                document.getElementById('imu-temp').innerText = (s.imu_temp || 0) + "°C";
+                document.getElementById('ip-addr').innerText = s.ip_addr || "--";
+
+                // Health Badges
+                if (s.throttle_flags) {
+                    const flags = s.throttle_flags;
+                    const setBadge = (id, match) => {
+                        const el = document.getElementById(id);
+                        if(flags.includes(match)) el.classList.add('active');
+                        else el.classList.remove('active');
+                    };
+                    setBadge('flag-uv', 'UNDERVOLT');
+                    setBadge('flag-freq', 'FREQ_CAP');
+                    setBadge('flag-throt', 'THROTTLED');
+                    setBadge('flag-temp', 'SOFT_TEMP');
+                }
+
+                // Network
+                document.getElementById('net-rx').innerText = (s.rx_kbps || 0).toFixed(1);
+                document.getElementById('net-tx').innerText = (s.tx_kbps || 0).toFixed(1);
 
                 document.getElementById('cpu-temp').innerText = s.cpu_temp + "°C";
                 updateBar('bar-temp', s.cpu_temp, 80);
@@ -286,35 +328,22 @@
         }
 
         async function snap() {
-            await fetch('/api/capture', {method:'POST'});
+            await fetch('/capture'); // Using GET as per original server.py structure
             loadGal();
         }
 
         async function loadGal() {
-            try {
-                let res = await fetch('/api/captures');
-                let files = await res.json();
-                let g = document.getElementById('gallery');
-                g.innerHTML = "";
-                files.forEach(f => {
-                    let i = document.createElement('img');
-                    i.src = "/captures/"+f;
-                    i.style.height = "100%";
-                    i.style.border = "1px solid #444";
-                    i.onclick = () => window.open(i.src);
-                    g.appendChild(i);
-                });
-            } catch(e) {}
+            // Placeholder: The current simple server doesn't support gallery listing 
+            // without additional changes, but keeping structure for future.
         }
 
         setInterval(async () => { 
             try { 
-                let res = await fetch('/api/telemetry');
+                let res = await fetch('/telemetry'); // Matches server.py route
                 updateDisplay(await res.json()); 
             } catch {} 
         }, 100);
         
-        loadGal();
     </script>
 </body>
 </html>

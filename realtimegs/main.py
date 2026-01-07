@@ -32,6 +32,49 @@ class SystemMonitor:
         self.cached_stats = {}
         self.last_slow_update = 0
         self.start_time = time.time()
+        
+        # Network Speed Tracking
+        self.last_net_time = time.time()
+        self.last_rx = 0
+        self.last_tx = 0
+        self.net_stats = {"rx_kbps": 0, "tx_kbps": 0}
+
+    def decode_throttle(self, hex_str):
+        """Decodes Pi throttling bits into human warnings"""
+        try:
+            code = int(hex_str, 16)
+            flags = []
+            if code & 0x1: flags.append("UNDERVOLT")
+            if code & 0x2: flags.append("FREQ_CAP")
+            if code & 0x4: flags.append("THROTTLED")
+            if code & 0x8: flags.append("SOFT_TEMP")
+            return flags if flags else ["NOMINAL"]
+        except: return ["UNKNOWN"]
+
+    def update_network_stats(self):
+        """Calculates real-time bandwidth usage"""
+        try:
+            with open("/sys/class/net/wlan0/statistics/rx_bytes", "r") as f: rx = int(f.read())
+            with open("/sys/class/net/wlan0/statistics/tx_bytes", "r") as f: tx = int(f.read())
+            
+            now = time.time()
+            dt = now - self.last_net_time
+            
+            # Prevent divide by zero or huge jumps on startup
+            if dt > 0.5:
+                rx_spd = (rx - self.last_rx) / dt / 1024 # KB/s
+                tx_spd = (tx - self.last_tx) / dt / 1024 # KB/s
+                
+                self.net_stats = {
+                    "rx_kbps": round(rx_spd, 1),
+                    "tx_kbps": round(tx_spd, 1)
+                }
+                
+                self.last_rx = rx
+                self.last_tx = tx
+                self.last_net_time = now
+        except: 
+            self.net_stats = {"rx_kbps": 0, "tx_kbps": 0}
 
     def get_quick_stats(self):
         stats = {}
@@ -43,6 +86,11 @@ class SystemMonitor:
         try:
             stats["cpu_load"] = round(os.getloadavg()[0] / os.cpu_count() * 100, 1)
         except: stats["cpu_load"] = 0
+        
+        # Add Network Stats here (updates frequently)
+        self.update_network_stats()
+        stats.update(self.net_stats)
+        
         return stats
 
     def get_slow_stats(self):
@@ -50,6 +98,7 @@ class SystemMonitor:
             return self.cached_stats
         
         stats = {}
+        # 1. Hardware Commands
         try:
             res = subprocess.check_output(["vcgencmd", "measure_volts", "core"], stderr=subprocess.DEVNULL)
             stats["cpu_volts"] = float(res.decode().split("=")[1].replace("V\n", ""))
@@ -58,12 +107,20 @@ class SystemMonitor:
             stats["cpu_clock"] = int(int(res.decode().split("=")[1]) / 1000000)
             
             res = subprocess.check_output(["vcgencmd", "get_throttled"], stderr=subprocess.DEVNULL)
-            stats["throttle_hex"] = res.decode().split("=")[1].strip()
+            raw_hex = res.decode().split("=")[1].strip()
+            stats["throttle_hex"] = raw_hex
+            stats["throttle_flags"] = self.decode_throttle(raw_hex)
+
+            res = subprocess.check_output(["vcgencmd", "get_mem", "gpu"], stderr=subprocess.DEVNULL)
+            stats["gpu_mem"] = res.decode().split("=")[1].strip()
         except: 
             stats["cpu_volts"] = 0
             stats["cpu_clock"] = 0
             stats["throttle_hex"] = "0x0"
+            stats["throttle_flags"] = ["ERR"]
+            stats["gpu_mem"] = "0M"
 
+        # 2. Memory
         try:
             with open("/proc/meminfo", "r") as f:
                 mem = {}
@@ -77,6 +134,7 @@ class SystemMonitor:
                 stats["ram_percent"] = round(((total - avail) / total) * 100, 1)
         except: pass
 
+        # 3. Disk
         try:
             st = os.statvfs('/')
             total = st.f_blocks * st.f_frsize
@@ -86,6 +144,7 @@ class SystemMonitor:
             stats["disk_percent"] = round(((total - free) / total) * 100, 1)
         except: pass
 
+        # 4. Uptime & IP
         try:
             with open("/proc/uptime", "r") as f:
                 stats["uptime_sys"] = int(float(f.read().split()[0]))
@@ -93,16 +152,11 @@ class SystemMonitor:
         stats["uptime_script"] = int(time.time() - self.start_time)
 
         try:
-            with open("/proc/net/wireless", "r") as f:
-                lines = f.readlines()
-                if len(lines) > 2:
-                    parts = lines[2].split()
-                    stats["wifi_dbm"] = int(float(parts[3]))
-                    stats["wifi_link"] = int(float(parts[2]))
-        except: 
-            stats["wifi_dbm"] = 0
-            stats["wifi_link"] = 0
+            res = subprocess.check_output(["hostname", "-I"], stderr=subprocess.DEVNULL)
+            stats["ip_addr"] = res.decode().strip().split(" ")[0]
+        except: stats["ip_addr"] = "Unknown"
 
+        # 5. Top Processes
         try:
             cmd = ["ps", "-Ao", "pid,comm,pcpu,pmem", "--sort=-pcpu"]
             output = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode()
@@ -166,9 +220,11 @@ class HybridNode:
         self.running = True
         self.cached_rssi = 0
         self.last_rssi_time = 0
-        
-        # Track camera activity to force updates
         self.last_cam_activity = 0
+        
+        # Jerk Calculation State
+        self.last_accel = {"x":0, "y":0, "z":0}
+        self.last_imu_time = time.time()
         
         self.bt_thread = threading.Thread(target=self.run_bt_server)
         self.bt_thread.daemon = True
@@ -200,19 +256,17 @@ class HybridNode:
 
                 while self.running:
                     now = time.time()
+                    dt = now - self.last_imu_time
+                    self.last_imu_time = now
                     
-                    # 1. CAMERA HEARTBEAT (The Fix)
-                    # If camera hasn't been accessed in 0.2s, force a tiny capture to update ISP
+                    # 1. Camera Heartbeat
                     if now - self.last_cam_activity > 0.2:
                         try:
-                            # Capture to devnull basically, just to tick the ISP
-                            with cam_lock:
-                                cam.picam2.capture_file(io.BytesIO(), format="jpeg")
+                            with cam_lock: cam.picam2.capture_file(io.BytesIO(), format="jpeg")
                             self.last_cam_activity = now
-                        except Exception as e:
-                            pass
+                        except: pass
 
-                    # 2. Gather Sensor Data
+                    # 2. Sensor Data
                     data = imu.get_data() if imu else {"status": "no_imu"}
                     
                     if data["status"] == "ONLINE":
@@ -220,21 +274,33 @@ class HybridNode:
                         data["attitude"] = att
                         ax, ay, az = data["accel"]["x"], data["accel"]["y"], data["accel"]["z"]
                         data["total_g"] = round(math.sqrt(ax**2 + ay**2 + az**2) / 9.81, 2)
+                        
+                        # Calculate Jerk (Derivative of Accel) m/s^3
+                        if dt > 0:
+                            dj_x = (ax - self.last_accel["x"]) / dt
+                            dj_y = (ay - self.last_accel["y"]) / dt
+                            dj_z = (az - self.last_accel["z"]) / dt
+                            total_jerk = math.sqrt(dj_x**2 + dj_y**2 + dj_z**2)
+                            data["jerk"] = round(total_jerk, 1)
+                        else:
+                            data["jerk"] = 0.0
+                            
+                        self.last_accel = {"x":ax, "y":ay, "z":az}
 
                     # 3. System Data
                     sys_data = sys_mon.get_quick_stats()
                     sys_data.update(sys_mon.get_slow_stats())
+                    sys_data["active_threads"] = threading.active_count()
+                    if data.get("temp"): sys_data["imu_temp"] = round(data["temp"], 1)
                     data["sys"] = sys_data
                     
-                    # 4. Dynamic Camera Metadata
+                    # 4. Camera Meta
                     try:
-                        # FIX: Use function call capture_metadata() instead of property
                         meta = cam.picam2.capture_metadata()
                         if meta:
                             frame_dur = meta.get("FrameDuration", 33333)
                             fps = 1000000.0 / frame_dur if frame_dur > 0 else 0
                             gains = meta.get("ColourGains", (0.0, 0.0))
-                            
                             data["cam_meta"] = {
                                 "res": f"{CURRENT_RES[0]}x{CURRENT_RES[1]}",
                                 "fmt": "RGB888",
@@ -248,10 +314,8 @@ class HybridNode:
                                 "awb_b": round(gains[1], 2),
                                 "af_state": int(meta.get("AfState", 0))
                             }
-                        else:
-                            data["cam_meta"] = {"res": "WAITING"}
+                        else: data["cam_meta"] = {"res": "WAITING"}
                     except Exception as e: 
-                        # CRITICAL FIX: Send the actual error string to the dashboard
                         data["cam_meta"] = {"res": "ERR", "error": str(e)}
                     
                     # 5. Transmit
@@ -275,10 +339,8 @@ class HybridNode:
 
 @app.route('/stream')
 def stream():
-    # Helper to signal activity to the heartbeat loop
     def signal_activity():
-        if 'node' in globals():
-            node.last_cam_activity = time.time()
+        if 'node' in globals(): node.last_cam_activity = time.time()
 
     def generate():
         stream = io.BytesIO()
@@ -301,9 +363,7 @@ def snapshot():
         configure_camera(4608, 2592)
         cam.picam2.capture_file(stream, format="jpeg")
         configure_camera(1920, 1080)
-        # Update timestamp to pause heartbeat momentarily
         if 'node' in globals(): node.last_cam_activity = time.time()
-        
     stream.seek(0)
     return send_file(stream, mimetype='image/jpeg', download_name='snap.jpg')
 
