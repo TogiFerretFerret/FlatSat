@@ -35,10 +35,6 @@ def rotate_vector_by_quaternion(v, q):
     vx, vy, vz = v['x'], v['y'], v['z']
     qw, qx, qy, qz = q[0], q[1], q[2], q[3]
 
-    # Formula for rotating vector by quaternion
-    # v' = v + 2 * cross(q_xyz, cross(q_xyz, v) + q_w * v)
-    
-    # Pre-calculate cross product terms
     x1 = qy * vz - qz * vy
     y1 = qz * vx - qx * vz
     z1 = qx * vy - qy * vx
@@ -58,15 +54,13 @@ class PositionTracker:
         self.active = False
         self.pos = {"x": 0.0, "y": 0.0, "z": 0.0}
         self.vel = {"x": 0.0, "y": 0.0, "z": 0.0}
-        self.world_bias = {"x": 0.0, "y": 0.0, "z": 0.0} # Bias in WORLD frame
+        self.world_bias = {"x": 0.0, "y": 0.0, "z": 0.0} 
         self.last_time = time.time()
 
     def start(self, current_accel, current_quat):
-        # 1. Rotate current sensor reading to World Frame
         world_a = rotate_vector_by_quaternion(current_accel, current_quat)
         
-        # 2. Tare: The current reading in World Frame IS our bias (Gravity + Sensor Offset)
-        # We multiply by 9.81 assuming raw data is in G's. 
+        # Tare: Capture gravity + bias at the start
         self.world_bias = {
             "x": world_a["x"] * 9.81,
             "y": world_a["y"] * 9.81,
@@ -90,37 +84,42 @@ class PositionTracker:
         dt = now - self.last_time
         self.last_time = now
 
-        # 1. Rotate Raw Sensor Data to World Frame
-        # This accounts for the rotation you mentioned!
+        # 1. Rotate to World Frame
         world_raw = rotate_vector_by_quaternion(curr_accel, curr_quat)
         
-        # 2. Convert to m/s^2
-        ax_world = world_raw["x"] * 9.81
-        ay_world = world_raw["y"] * 9.81
-        az_world = world_raw["z"] * 9.81
+        # 2. Convert to m/s^2 & Remove Bias
+        ax = (world_raw["x"] * 9.81) - self.world_bias["x"]
+        ay = (world_raw["y"] * 9.81) - self.world_bias["y"]
+        az = (world_raw["z"] * 9.81) - self.world_bias["z"]
 
-        # 3. Remove Gravity/Bias (in World Frame)
-        ax = ax_world - self.world_bias["x"]
-        ay = ay_world - self.world_bias["y"]
-        az = az_world - self.world_bias["z"]
+        # 3. Smart Deadband & Friction (THE FIX)
+        # If acceleration is tiny (noise), kill velocity so position stops drift.
+        threshold = 0.25 # Slightly higher threshold for stability
+        
+        if abs(ax) < threshold: 
+            ax = 0
+            self.vel["x"] *= 0.85 # Strong friction when stopped
+        else:
+            self.vel["x"] *= 0.99 # Tiny air resistance when moving
 
-        # 4. Deadband (Noise filter)
-        threshold = 0.15
-        if abs(ax) < threshold: ax = 0
-        if abs(ay) < threshold: ay = 0
-        if abs(az) < threshold: az = 0
+        if abs(ay) < threshold: 
+            ay = 0
+            self.vel["y"] *= 0.85
+        else:
+            self.vel["y"] *= 0.99
 
-        # 5. Integrate: Accel -> Velocity
+        if abs(az) < threshold: 
+            az = 0
+            self.vel["z"] *= 0.85 
+        else:
+            self.vel["z"] *= 0.99
+
+        # 4. Integrate: Accel -> Velocity
         self.vel["x"] += ax * dt
         self.vel["y"] += ay * dt
         self.vel["z"] += az * dt
         
-        # Friction/Decay (Optional: stops runaway drift when stationary)
-        # self.vel["x"] *= 0.98 
-        # self.vel["y"] *= 0.98
-        # self.vel["z"] *= 0.98
-
-        # 6. Integrate: Velocity -> Position
+        # 5. Integrate: Velocity -> Position
         self.pos["x"] += self.vel["x"] * dt
         self.pos["y"] += self.vel["y"] * dt
         self.pos["z"] += self.vel["z"] * dt
@@ -241,7 +240,6 @@ class HybridNode:
                 while self.running:
                     data = imu.get_data() if imu else {"status": "no_imu"}
                     
-                    # Update Physics using ACCEL + QUATERNION
                     if data["status"] == "ONLINE":
                         tracker.update(data["accel"], data["quaternion"])
                         data["pos_offset"] = tracker.pos
