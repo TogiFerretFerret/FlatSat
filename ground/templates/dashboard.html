@@ -226,6 +226,15 @@
                 </div>
 
                 <div class="stat-group">
+                    <span class="stat-label">SYSTEM HEALTH</span>
+                    <div class="axis-grid">
+                        <div class="axis-box"><span class="axis-name">CPU</span><br><span id="sys-cpu">0</span>%</div>
+                        <div class="axis-box"><span class="axis-name">RAM</span><br><span id="sys-mem">0</span>%</div>
+                        <div class="axis-box"><span class="axis-name">DISK</span><br><span id="sys-disk">0</span>%</div>
+                    </div>
+                </div>
+
+                <div class="stat-group">
                     <span class="stat-label">THERMALS</span>
                     <div class="axis-grid" style="grid-template-columns: 1fr 1fr;">
                         <div class="axis-box">
@@ -245,6 +254,15 @@
                         <div class="axis-box"><span class="axis-name">X</span><br><span id="ax">0.0</span></div>
                         <div class="axis-box"><span class="axis-name">Y</span><br><span id="ay">0.0</span></div>
                         <div class="axis-box"><span class="axis-name">Z</span><br><span id="az">0.0</span></div>
+                    </div>
+                </div>
+
+                <div class="stat-group">
+                    <span class="stat-label">GYROSCOPE (deg/s)</span>
+                    <div class="axis-grid">
+                        <div class="axis-box"><span class="axis-name">X</span><br><span id="gx">0.0</span></div>
+                        <div class="axis-box"><span class="axis-name">Y</span><br><span id="gy">0.0</span></div>
+                        <div class="axis-box"><span class="axis-name">Z</span><br><span id="gz">0.0</span></div>
                     </div>
                 </div>
 
@@ -312,6 +330,11 @@
             // RSSI
             if (data.rssi !== undefined) document.getElementById('rssi').innerText = data.rssi;
 
+            // System Health (New)
+            if (data.cpu_load !== undefined) document.getElementById('sys-cpu').innerText = data.cpu_load;
+            if (data.mem_percent !== undefined) document.getElementById('sys-mem').innerText = data.mem_percent;
+            if (data.disk_percent !== undefined) document.getElementById('sys-disk').innerText = data.disk_percent;
+
             // Thermals
             if (data.temp !== undefined) document.getElementById('temp-imu').innerText = data.temp.toFixed(1);
             if (data.cpu_temp !== undefined) document.getElementById('temp-cpu').innerText = data.cpu_temp.toFixed(1);
@@ -323,14 +346,24 @@
                 document.getElementById('az').innerText = data.accel.z.toFixed(2);
             }
 
-            // Mag (New)
+            // Gyro (New)
+            if (data.gyro) {
+                // Assuming rad/s, converting to deg/s for display might be nicer, 
+                // but if raw is deg/s (LSM default in some libs), we just show it.
+                // Let's assume raw is raw.
+                document.getElementById('gx').innerText = data.gyro.x.toFixed(1);
+                document.getElementById('gy').innerText = data.gyro.y.toFixed(1);
+                document.getElementById('gz').innerText = data.gyro.z.toFixed(1);
+            }
+
+            // Mag
             if (data.mag) {
                 document.getElementById('mx').innerText = data.mag.x.toFixed(1);
                 document.getElementById('my').innerText = data.mag.y.toFixed(1);
                 document.getElementById('mz').innerText = data.mag.z.toFixed(1);
             }
 
-            // Quaternion (New)
+            // Quaternion
             if (data.quaternion) {
                 document.getElementById('qw').innerText = data.quaternion[0].toFixed(3);
                 document.getElementById('qx').innerText = data.quaternion[1].toFixed(3);
