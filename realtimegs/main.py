@@ -42,9 +42,13 @@ class PositionTracker:
         self.q = start_quat if start_quat else [1.0, 0.0, 0.0, 0.0]
         self.pos = {"x": 0.0, "y": 0.0, "z": 0.0}
         self.vel = {"x": 0.0, "y": 0.0, "z": 0.0}
+        self.world_bias = {"x": 0.0, "y": 0.0, "z": 0.0}
         self.last_time = time.time()
         self.active = True
-        print(f"[Physics] INS Started. Initial Attitude: {self.q}")
+        
+        # We don't set bias immediately here; we let the adaptive loop handle it
+        # This avoids capturing a "jerk" as the permanent bias
+        print(f"[Physics] INS Started.")
 
     def stop(self):
         self.active = False
@@ -81,69 +85,72 @@ class PositionTracker:
         if norm > 0:
             self.q = [x / norm for x in self.q]
 
-        # --- 2. GRAVITY SUBTRACTION ---
-        # Rotate the sensor acceleration vector into the Global Frame
-        # using our Gyro-tracked orientation
+        # --- 2. ROTATE TO WORLD FRAME ---
         ax_s, ay_s, az_s = curr_accel['x'], curr_accel['y'], curr_accel['z']
-        
-        # Rotate Vector by Quaternion (v_global = q * v_sensor * q_inv)
         qw, qx, qy, qz = self.q
         
-        # Helper vars for rotation matrix columns
-        # (Optimized implementation of rotation)
-        xx = qx * qx
-        yy = qy * qy
-        zz = qz * qz
-        xy = qx * qy
-        xz = qx * qz
-        yz = qy * qz
-        wx = qw * qx
-        wy = qw * qy
-        wz = qw * qz
+        # Optimized rotation logic
+        xx = qx * qx; yy = qy * qy; zz = qz * qz
+        xy = qx * qy; xz = qx * qz; yz = qy * qz
+        wx = qw * qx; wy = qw * qy; wz = qw * qz
 
-        # World Acceleration
-        # 1.0 - 2.0 * (yy + zz) is diagonal term, etc.
         ax_world = ax_s * (1.0 - 2.0 * (yy + zz)) + ay_s * (2.0 * (xy - wz)) + az_s * (2.0 * (xz + wy))
         ay_world = ax_s * (2.0 * (xy + wz)) + ay_s * (1.0 - 2.0 * (xx + zz)) + az_s * (2.0 * (yz - wx))
         az_world = ax_s * (2.0 * (xz - wy)) + ay_s * (2.0 * (yz + wx)) + az_s * (1.0 - 2.0 * (xx + yy))
 
-        # Subtract Gravity (9.81 m/s^2 on Z axis)
-        # Note: IMU returns m/s^2 roughly.
-        # Ideally, we assume 1G = 9.81.
-        az_world -= 9.81
-
-        # --- 3. INTEGRATION (Dead Reckoning) ---
+        # --- 3. ADAPTIVE BIAS & ZUPT (The Fix) ---
         
-        # Deadband threshold (ignore noise below this)
-        # Tuned to 0.2 to reject gravity leakage from slight tilt errors
-        THRESHOLD = 0.2 
+        # Calculate Magnitude. Should be ~9.81 if still.
+        current_mag = math.sqrt(ax_world**2 + ay_world**2 + az_world**2)
         
-        # Velocity Decay (Friction) prevents "infinite glide" drift
-        MOVING_DECAY = 0.99
-        STOP_DECAY = 0.85
+        # If we are close to 1G (within 0.5 m/s^2), assume stationary.
+        is_stationary = abs(current_mag - 9.81) < 0.5
 
-        # X Integration
-        if abs(ax_world) > THRESHOLD:
-            self.vel["x"] += ax_world * dt
-            self.vel["x"] *= MOVING_DECAY
+        if is_stationary:
+            # ADAPTIVE BIAS: Slowly shift the zero-point to match current reading.
+            # This kills the "climbing negative Z" by accepting the current Z as the new zero.
+            alpha = 0.05 # Adaptation speed (0.0 to 1.0)
+            
+            # Target bias is the current reading (minus true gravity for Z)
+            self.world_bias["x"] = self.world_bias["x"] * (1-alpha) + (ax_world) * alpha
+            self.world_bias["y"] = self.world_bias["y"] * (1-alpha) + (ay_world) * alpha
+            self.world_bias["z"] = self.world_bias["z"] * (1-alpha) + (az_world - 9.81) * alpha
+            
+            # Kill velocity aggressively when stationary
+            self.vel["x"] *= 0.5
+            self.vel["y"] *= 0.5
+            self.vel["z"] *= 0.5
+            
+            # Zero out if very small
+            if abs(self.vel["x"]) < 0.01: self.vel["x"] = 0
+            if abs(self.vel["y"]) < 0.01: self.vel["y"] = 0
+            if abs(self.vel["z"]) < 0.01: self.vel["z"] = 0
+            
+            # Don't accelerate
+            ax, ay, az = 0, 0, 0
         else:
-            self.vel["x"] *= STOP_DECAY # Rapid stop if no accel detected (ZUPT)
+            # We are moving. Subtract the learned bias.
+            ax = ax_world - self.world_bias["x"]
+            ay = ay_world - self.world_bias["y"]
+            az = (az_world - 9.81) - self.world_bias["z"]
 
-        # Y Integration
-        if abs(ay_world) > THRESHOLD:
-            self.vel["y"] += ay_world * dt
-            self.vel["y"] *= MOVING_DECAY
-        else:
-            self.vel["y"] *= STOP_DECAY
+            # Deadband Filter
+            threshold = 0.2
+            if abs(ax) < threshold: ax = 0
+            if abs(ay) < threshold: ay = 0
+            if abs(az) < threshold: az = 0
 
-        # Z Integration
-        if abs(az_world) > THRESHOLD:
-            self.vel["z"] += az_world * dt
-            self.vel["z"] *= MOVING_DECAY
-        else:
-            self.vel["z"] *= STOP_DECAY
+            # Integrate Acceleration -> Velocity
+            self.vel["x"] += ax * dt
+            self.vel["y"] += ay * dt
+            self.vel["z"] += az * dt
+            
+            # Friction (Drag)
+            self.vel["x"] *= 0.99
+            self.vel["y"] *= 0.99
+            self.vel["z"] *= 0.90 # Heavy Z drag to stop vertical jitter
 
-        # Pos Update
+        # Integrate Velocity -> Position
         self.pos["x"] += self.vel["x"] * dt
         self.pos["y"] += self.vel["y"] * dt
         self.pos["z"] += self.vel["z"] * dt
