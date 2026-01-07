@@ -7,6 +7,7 @@ import os
 import io
 import sys
 import subprocess
+import math
 from flask import Flask, Response, send_file
 
 # --- HARDWARE IMPORTS ---
@@ -25,6 +26,107 @@ cam = CameraSystem()
 imu = IMU()
 cam_lock = threading.Lock()
 
+# --- PHYSICS ENGINE ---
+def rotate_vector_by_quaternion(v, q):
+    """
+    Rotates vector v (x,y,z) by quaternion q (w,x,y,z).
+    Returns rotated vector [x, y, z].
+    """
+    vx, vy, vz = v['x'], v['y'], v['z']
+    qw, qx, qy, qz = q[0], q[1], q[2], q[3]
+
+    # Formula for rotating vector by quaternion
+    # v' = v + 2 * cross(q_xyz, cross(q_xyz, v) + q_w * v)
+    
+    # Pre-calculate cross product terms
+    x1 = qy * vz - qz * vy
+    y1 = qz * vx - qx * vz
+    z1 = qx * vy - qy * vx
+
+    x2 = qy * z1 - qz * y1
+    y2 = qz * x1 - qx * z1
+    z2 = qx * y1 - qy * x1
+
+    return {
+        "x": vx + 2.0 * (qw * x1 + x2),
+        "y": vy + 2.0 * (qw * y1 + y2),
+        "z": vz + 2.0 * (qw * z1 + z2)
+    }
+
+class PositionTracker:
+    def __init__(self):
+        self.active = False
+        self.pos = {"x": 0.0, "y": 0.0, "z": 0.0}
+        self.vel = {"x": 0.0, "y": 0.0, "z": 0.0}
+        self.world_bias = {"x": 0.0, "y": 0.0, "z": 0.0} # Bias in WORLD frame
+        self.last_time = time.time()
+
+    def start(self, current_accel, current_quat):
+        # 1. Rotate current sensor reading to World Frame
+        world_a = rotate_vector_by_quaternion(current_accel, current_quat)
+        
+        # 2. Tare: The current reading in World Frame IS our bias (Gravity + Sensor Offset)
+        # We multiply by 9.81 assuming raw data is in G's. 
+        self.world_bias = {
+            "x": world_a["x"] * 9.81,
+            "y": world_a["y"] * 9.81,
+            "z": world_a["z"] * 9.81
+        }
+        
+        self.pos = {"x": 0.0, "y": 0.0, "z": 0.0}
+        self.vel = {"x": 0.0, "y": 0.0, "z": 0.0}
+        self.last_time = time.time()
+        self.active = True
+        print(f"[Physics] Tracking Started. World Bias: {self.world_bias}")
+
+    def stop(self):
+        self.active = False
+        print("[Physics] Tracking Stopped.")
+
+    def update(self, curr_accel, curr_quat):
+        if not self.active: return
+        
+        now = time.time()
+        dt = now - self.last_time
+        self.last_time = now
+
+        # 1. Rotate Raw Sensor Data to World Frame
+        # This accounts for the rotation you mentioned!
+        world_raw = rotate_vector_by_quaternion(curr_accel, curr_quat)
+        
+        # 2. Convert to m/s^2
+        ax_world = world_raw["x"] * 9.81
+        ay_world = world_raw["y"] * 9.81
+        az_world = world_raw["z"] * 9.81
+
+        # 3. Remove Gravity/Bias (in World Frame)
+        ax = ax_world - self.world_bias["x"]
+        ay = ay_world - self.world_bias["y"]
+        az = az_world - self.world_bias["z"]
+
+        # 4. Deadband (Noise filter)
+        threshold = 0.15
+        if abs(ax) < threshold: ax = 0
+        if abs(ay) < threshold: ay = 0
+        if abs(az) < threshold: az = 0
+
+        # 5. Integrate: Accel -> Velocity
+        self.vel["x"] += ax * dt
+        self.vel["y"] += ay * dt
+        self.vel["z"] += az * dt
+        
+        # Friction/Decay (Optional: stops runaway drift when stationary)
+        # self.vel["x"] *= 0.98 
+        # self.vel["y"] *= 0.98
+        # self.vel["z"] *= 0.98
+
+        # 6. Integrate: Velocity -> Position
+        self.pos["x"] += self.vel["x"] * dt
+        self.pos["y"] += self.vel["y"] * dt
+        self.pos["z"] += self.vel["z"] * dt
+
+tracker = PositionTracker()
+
 # --- CAMERA CONFIG ---
 def configure_camera(width, height):
     print(f"[System] Switching Camera to {width}x{height}...")
@@ -36,12 +138,10 @@ def configure_camera(width, height):
         )
         cam.picam2.configure(config)
         cam.picam2.start()
-        print(f"[System] Camera Active at {width}x{height}.")
     except Exception as e:
         print(f"[System] Camera Config Failed: {e}")
 
-# Startup at 1080p
-configure_camera(1920, 1080)
+configure_camera(1920, 1080) # Startup at 1080p
 
 app = Flask(__name__)
 
@@ -56,7 +156,6 @@ class HybridNode:
             "throttled": "0x0", "voltage": 0, "clock_mhz": 0
         }
         self.last_stats_time = 0
-        
         self.cached_rssi = 0
         self.last_rssi_time = 0
 
@@ -65,8 +164,7 @@ class HybridNode:
         self.bt_thread.start()
 
     def get_rssi(self, mac):
-        if time.time() - self.last_rssi_time < 2.0:
-            return self.cached_rssi
+        if time.time() - self.last_rssi_time < 2.0: return self.cached_rssi
         try:
             cmd = ["hcitool", "rssi", mac]
             res = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)
@@ -74,17 +172,12 @@ class HybridNode:
             self.cached_rssi = val
             self.last_rssi_time = time.time()
             return val
-        except:
-            return self.cached_rssi
+        except: return self.cached_rssi
 
     def get_system_stats(self):
-        """Gather System Vitals (Cached every 2s)"""
-        if time.time() - self.last_stats_time < 2.0:
-            return self.cached_stats
-
+        if time.time() - self.last_stats_time < 2.0: return self.cached_stats
         stats = self.cached_stats.copy()
         try:
-            # Basic Stats
             with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
                 stats["cpu_temp"] = float(f.read()) / 1000.0
             
@@ -111,7 +204,6 @@ class HybridNode:
                         stats["wifi_signal"] = int(float(line.split()[3]))
                         break
 
-            # Advanced Vitals (Voltage/Clock/Throttle)
             res = subprocess.check_output(["vcgencmd", "get_throttled"], stderr=subprocess.DEVNULL)
             stats["throttled"] = res.decode().strip().split('=')[1]
 
@@ -121,8 +213,7 @@ class HybridNode:
             res = subprocess.check_output(["vcgencmd", "measure_clock", "arm"], stderr=subprocess.DEVNULL)
             stats["clock_mhz"] = int(res.decode().strip().split('=')[1]) // 1000000
             
-        except Exception:
-            pass
+        except Exception: pass
         
         self.cached_stats = stats
         self.last_stats_time = time.time()
@@ -133,34 +224,72 @@ class HybridNode:
         os.system("sudo hciconfig hci0 piscan")
         os.system("sdptool add SP")
 
-        try:
-            server_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
-            server_sock.bind(("00:00:00:00:00:00", 1))
-            server_sock.listen(1)
-            print("[BT] Ready...")
+        server_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+        server_sock.bind(("00:00:00:00:00:00", 1))
+        server_sock.listen(1)
+        print("[BT] Ready...")
 
-            while self.running:
-                try:
-                    client, addr = server_sock.accept()
-                    print(f"[BT] Connected: {addr}")
-                    while self.running:
-                        data = imu.get_data() if imu else {"status": "no_imu"}
-                        sys_stats = self.get_system_stats()
-                        data.update(sys_stats)
-                        data["rssi"] = self.get_rssi(addr[0])
+        while self.running:
+            try:
+                client, addr = server_sock.accept()
+                print(f"[BT] Connected: {addr}")
+                
+                cmd_thread = threading.Thread(target=self.listen_commands, args=(client,))
+                cmd_thread.daemon = True
+                cmd_thread.start()
+
+                while self.running:
+                    data = imu.get_data() if imu else {"status": "no_imu"}
+                    
+                    # Update Physics using ACCEL + QUATERNION
+                    if data["status"] == "ONLINE":
+                        tracker.update(data["accel"], data["quaternion"])
+                        data["pos_offset"] = tracker.pos
+                        data["tracking_active"] = tracker.active
+
+                        # Calculate Derived Magnitudes
+                        ax, ay, az = data["accel"]["x"], data["accel"]["y"], data["accel"]["z"]
+                        data["accel_mag"] = math.sqrt(ax**2 + ay**2 + az**2)
                         
-                        msg = json.dumps(data).encode('utf-8')
-                        header = struct.pack("!4sI", b"TELE", len(msg))
-                        client.sendall(header + msg)
-                        time.sleep(0.05)
-                except Exception as e:
-                    print(f"[BT] Disconnected: {e}")
-                    if client:
-                        try: client.close()
-                        except: pass
-                    time.sleep(1)
-        except Exception as e:
-            print(f"[BT] Server Error: {e}")
+                        gx, gy, gz = data["gyro"]["x"], data["gyro"]["y"], data["gyro"]["z"]
+                        data["gyro_mag"] = math.sqrt(gx**2 + gy**2 + gz**2)
+                        
+                        mx, my, mz = data["mag"]["x"], data["mag"]["y"], data["mag"]["z"]
+                        data["mag_mag"] = math.sqrt(mx**2 + my**2 + mz**2)
+
+                    sys_stats = self.get_system_stats()
+                    data.update(sys_stats)
+                    data["rssi"] = self.get_rssi(addr[0])
+                    
+                    msg = json.dumps(data).encode('utf-8')
+                    header = struct.pack("!4sI", b"TELE", len(msg))
+                    try: client.sendall(header + msg)
+                    except BrokenPipeError: break
+                    time.sleep(0.05)
+            except Exception as e:
+                print(f"[BT] Connection Reset: {e}")
+                time.sleep(1)
+
+    def listen_commands(self, sock):
+        while True:
+            try:
+                header = sock.recv(8)
+                if not header: break
+                type_bytes, length = struct.unpack("!4sI", header)
+                payload = b''
+                while len(payload) < length:
+                    chunk = sock.recv(length - len(payload))
+                    if not chunk: break
+                    payload += chunk
+                
+                cmd = type_bytes.decode('utf-8').strip()
+                if cmd == "TRK+":
+                    data = imu.get_data()
+                    if data["status"] == "ONLINE":
+                        tracker.start(data["accel"], data["quaternion"])
+                elif cmd == "TRK-":
+                    tracker.stop()
+            except: break
 
 # --- FLASK ROUTES ---
 @app.route('/stream')
