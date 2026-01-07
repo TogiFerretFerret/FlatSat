@@ -9,12 +9,10 @@
         :root { --bg: #050505; --panel: #111; --border: #333; --text: #00ff41; --dim: #00661a; --warn: #ffcc00; --alert: #ff0000; }
         body { background: var(--bg); color: var(--text); font-family: 'Consolas', 'Courier New', monospace; padding: 10px; margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; }
         
-        /* Layout */
         header { display: flex; justify-content: space-between; border-bottom: 2px solid var(--text); margin-bottom: 10px; padding-bottom: 5px; }
         .main-grid { display: grid; grid-template-columns: 250px 1fr 250px; gap: 10px; flex-grow: 1; min-height: 0; }
         .col { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
         
-        /* Components */
         .panel { background: var(--panel); border: 1px solid var(--border); padding: 8px; }
         h2 { margin: 0 0 5px 0; font-size: 0.9em; color: #fff; border-bottom: 1px solid var(--dim); text-transform: uppercase; letter-spacing: 1px; }
         
@@ -22,16 +20,15 @@
         .data-val { font-weight: bold; color: #fff; }
         
         .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px; text-align: center; margin-bottom: 5px; }
+        .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 2px; text-align: center; margin-bottom: 5px; }
         .sensor-box { background: #000; border: 1px solid var(--border); padding: 3px; }
         .lbl { display: block; font-size: 0.6em; color: #888; }
         .val { font-size: 0.9em; font-weight: bold; }
 
-        /* Video */
         .vid-container { flex-grow: 1; background: #000; border: 1px solid var(--border); position: relative; display: flex; align-items: center; justify-content: center; }
         img { max-width: 100%; max-height: 100%; }
         .overlay { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 5px; font-size: 0.8em; border: 1px solid var(--dim); }
 
-        /* Bars */
         .bar-bg { width: 100%; height: 6px; background: #222; margin-top: 2px; }
         .bar-fill { height: 100%; background: var(--text); width: 0%; transition: width 0.2s; }
         .bar-warn { background: var(--warn); }
@@ -40,7 +37,6 @@
         .btn { background: var(--panel); border: 1px solid var(--text); color: var(--text); width: 100%; padding: 10px; cursor: pointer; font-weight: bold; margin-top: 5px; }
         .btn:hover { background: var(--dim); color: #fff; }
         
-        /* Process Table */
         table { width: 100%; border-collapse: collapse; font-size: 0.7em; }
         th { text-align: left; color: #888; border-bottom: 1px solid #333; }
         td { padding: 2px 0; }
@@ -62,6 +58,16 @@
                 <div class="data-row"><span>PITCH</span><span class="data-val" id="att-pitch">0°</span></div>
                 <div class="data-row"><span>ROLL</span><span class="data-val" id="att-roll">0°</span></div>
                 <div class="data-row" style="margin-top:5px;"><span>TOTAL G</span><span class="data-val" id="total-g">1.00</span></div>
+            </div>
+
+            <div class="panel">
+                <h2>Quaternion</h2>
+                <div class="grid-4">
+                    <div class="sensor-box"><span class="lbl">W</span><span class="val" id="qw">0.00</span></div>
+                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="qx">0.00</span></div>
+                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="qy">0.00</span></div>
+                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="qz">0.00</span></div>
+                </div>
             </div>
 
             <div class="panel">
@@ -112,6 +118,16 @@
             </div>
 
             <div class="panel">
+                <h2>Optical Sensor</h2>
+                <div class="data-row"><span>SENSOR FPS</span><span class="data-val" id="cam-fps">0.0</span></div>
+                <div class="data-row"><span>EXPOSURE</span><span class="data-val" id="cam-exp">0 ms</span></div>
+                <div class="data-row"><span>ANALOG GAIN</span><span class="data-val" id="cam-gain">0x</span></div>
+                <div class="data-row"><span>DIGITAL GAIN</span><span class="data-val" id="cam-dgain">0x</span></div>
+                <div class="data-row"><span>AWB GAINS</span><span class="data-val" id="cam-awb">R:0 B:0</span></div>
+                <div class="data-row"><span>LENS / AF</span><span class="data-val" id="cam-lens">0.0 / IDLE</span></div>
+            </div>
+
+            <div class="panel">
                 <h2>Thermals & Load</h2>
                 <div class="data-row"><span>CPU TEMP</span><span class="data-val" id="cpu-temp">0°C</span></div>
                 <div class="bar-bg"><div id="bar-temp" class="bar-fill" style="width:0%"></div></div>
@@ -156,12 +172,39 @@
             if(d.gyro) ['x','y','z'].forEach(k => document.getElementById('g'+k).innerText = d.gyro[k].toFixed(1));
             if(d.mag) ['x','y','z'].forEach(k => document.getElementById('m'+k).innerText = d.mag[k].toFixed(0));
             
+            // Quaternions
+            if(d.quaternion) {
+                ['w','x','y','z'].forEach((k, i) => {
+                    const el = document.getElementById('q'+k);
+                    if(el) el.innerText = d.quaternion[i] !== undefined ? d.quaternion[i].toFixed(3) : "0.00";
+                });
+            }
+
             if(d.attitude) {
                 document.getElementById('att-yaw').innerText = d.attitude.yaw.toFixed(0) + "°";
                 document.getElementById('att-pitch').innerText = d.attitude.pitch.toFixed(0) + "°";
                 document.getElementById('att-roll').innerText = d.attitude.roll.toFixed(0) + "°";
             }
             if(d.total_g) document.getElementById('total-g').innerText = d.total_g;
+
+            // Camera Metadata
+            if(d.cam_meta) {
+                if(d.cam_meta.res !== "ERR") {
+                    document.getElementById('cam-fps').innerText = d.cam_meta.fps + " FPS";
+                    
+                    const exp = d.cam_meta.exp_ms;
+                    document.getElementById('cam-exp').innerText = exp.toFixed(1) + " ms";
+                    document.getElementById('cam-exp').style.color = (exp > 30) ? "#ffcc00" : "#fff";
+                    
+                    document.getElementById('cam-gain').innerText = d.cam_meta.a_gain.toFixed(2) + "x";
+                    document.getElementById('cam-dgain').innerText = d.cam_meta.d_gain.toFixed(2) + "x";
+                    document.getElementById('cam-awb').innerText = `R:${d.cam_meta.awb_r} B:${d.cam_meta.awb_b}`;
+                    
+                    const states = ["IDLE", "SCAN", "LOCKED", "FAIL"];
+                    const st = states[d.cam_meta.af_state] || "UNKNOWN";
+                    document.getElementById('cam-lens').innerText = `${d.cam_meta.lens} / ${st}`;
+                }
+            }
 
             // SYSTEMS
             if(d.sys) {

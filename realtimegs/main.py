@@ -26,7 +26,7 @@ cam = CameraSystem()
 imu = IMU()
 cam_lock = threading.Lock()
 
-# --- SYSTEM MONITOR (The Kitchen Sink) ---
+# --- SYSTEM MONITOR ---
 class SystemMonitor:
     def __init__(self):
         self.cached_stats = {}
@@ -34,39 +34,29 @@ class SystemMonitor:
         self.start_time = time.time()
 
     def get_quick_stats(self):
-        """Stats that change fast and are cheap to read"""
         stats = {}
-        # CPU Temp
         try:
             with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
                 stats["cpu_temp"] = round(float(f.read()) / 1000.0, 1)
         except: stats["cpu_temp"] = 0
 
-        # CPU Load (1 min avg)
         try:
             stats["cpu_load"] = round(os.getloadavg()[0] / os.cpu_count() * 100, 1)
         except: stats["cpu_load"] = 0
-        
         return stats
 
     def get_slow_stats(self):
-        """Heavy stats, cached for 2 seconds"""
         if time.time() - self.last_slow_update < 2.0:
             return self.cached_stats
         
         stats = {}
-        
-        # 1. Voltage & Clock & Throttle (vcgencmd)
         try:
-            # Core Voltage
             res = subprocess.check_output(["vcgencmd", "measure_volts", "core"], stderr=subprocess.DEVNULL)
             stats["cpu_volts"] = float(res.decode().split("=")[1].replace("V\n", ""))
             
-            # Clock Speed
             res = subprocess.check_output(["vcgencmd", "measure_clock", "arm"], stderr=subprocess.DEVNULL)
             stats["cpu_clock"] = int(int(res.decode().split("=")[1]) / 1000000)
             
-            # Throttling Hex
             res = subprocess.check_output(["vcgencmd", "get_throttled"], stderr=subprocess.DEVNULL)
             stats["throttle_hex"] = res.decode().split("=")[1].strip()
         except: 
@@ -74,14 +64,12 @@ class SystemMonitor:
             stats["cpu_clock"] = 0
             stats["throttle_hex"] = "0x0"
 
-        # 2. Memory Usage
         try:
             with open("/proc/meminfo", "r") as f:
                 mem = {}
                 for line in f:
                     parts = line.split()
                     mem[parts[0].replace(":", "")] = int(parts[1])
-                
                 total = mem.get("MemTotal", 1)
                 avail = mem.get("MemAvailable", 0)
                 stats["ram_total_mb"] = int(total / 1024)
@@ -89,7 +77,6 @@ class SystemMonitor:
                 stats["ram_percent"] = round(((total - avail) / total) * 100, 1)
         except: pass
 
-        # 3. Disk Usage
         try:
             st = os.statvfs('/')
             total = st.f_blocks * st.f_frsize
@@ -99,20 +86,16 @@ class SystemMonitor:
             stats["disk_percent"] = round(((total - free) / total) * 100, 1)
         except: pass
 
-        # 4. Uptime
         try:
             with open("/proc/uptime", "r") as f:
                 stats["uptime_sys"] = int(float(f.read().split()[0]))
         except: stats["uptime_sys"] = 0
-        
         stats["uptime_script"] = int(time.time() - self.start_time)
 
-        # 5. Wireless
         try:
             with open("/proc/net/wireless", "r") as f:
                 lines = f.readlines()
                 if len(lines) > 2:
-                    # wlan0: 0000   50.  -60.  ...
                     parts = lines[2].split()
                     stats["wifi_dbm"] = int(float(parts[3]))
                     stats["wifi_link"] = int(float(parts[2]))
@@ -120,27 +103,20 @@ class SystemMonitor:
             stats["wifi_dbm"] = 0
             stats["wifi_link"] = 0
 
-        # 6. Top Processes (New)
         try:
-            # Fetches PID, Command, %CPU, %MEM sorted by CPU usage
             cmd = ["ps", "-Ao", "pid,comm,pcpu,pmem", "--sort=-pcpu"]
             output = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode()
             lines = output.strip().split('\n')
-            
             procs = []
-            # Skip header, take top 5
-            for line in lines[1:6]:
+            for line in lines[1:]:
                 parts = line.split()
                 if len(parts) >= 4:
-                    procs.append({
-                        "pid": parts[0],
-                        "name": parts[1],
-                        "cpu": parts[2],
-                        "mem": parts[3]
-                    })
+                    name = parts[1]
+                    if name in ["ps", "sh", "head", "awk", "python"]: continue
+                    procs.append({"pid": parts[0], "name": name, "cpu": parts[2], "mem": parts[3]})
+                    if len(procs) >= 5: break
             stats["processes"] = procs
-        except:
-            stats["processes"] = []
+        except: stats["processes"] = []
 
         self.cached_stats = stats
         self.last_slow_update = time.time()
@@ -150,30 +126,17 @@ sys_mon = SystemMonitor()
 
 # --- ATTITUDE MATH ---
 def calculate_attitude(accel, mag):
-    """ Calculate Roll, Pitch, and Yaw from Raw Sensors """
     ax, ay, az = accel['x'], accel['y'], accel['z']
-    
-    # Roll (Rotation around X)
     roll = math.atan2(ay, az)
-    
-    # Pitch (Rotation around Y)
     pitch = math.atan2(-ax, math.sqrt(ay*ay + az*az))
-    
-    # Yaw (Compass Heading)
     mx, my, mz = mag['x'], mag['y'], mag['z']
-    
-    # Tilt compensation
     cos_r = math.cos(roll)
     sin_r = math.sin(roll)
     cos_p = math.cos(pitch)
     sin_p = math.sin(pitch)
-    
     mx_comp = mx * cos_p + mz * sin_p
     my_comp = mx * sin_r * sin_p + my * cos_r - mz * sin_r * cos_p
-    
     yaw = math.atan2(-my_comp, mx_comp)
-    
-    # Convert to degrees
     return {
         "roll": math.degrees(roll),
         "pitch": math.degrees(pitch),
@@ -181,13 +144,17 @@ def calculate_attitude(accel, mag):
     }
 
 # --- CAMERA CONFIG ---
+CURRENT_RES = (1920, 1080)
+
 def configure_camera(width, height):
+    global CURRENT_RES
     try:
         try: cam.picam2.stop()
         except: pass
         config = cam.picam2.create_video_configuration(main={"size": (width, height), "format": "RGB888"})
         cam.picam2.configure(config)
         cam.picam2.start()
+        CURRENT_RES = (width, height)
     except Exception as e: print(f"[Cam] Config Error: {e}")
 
 configure_camera(1920, 1080)
@@ -197,10 +164,8 @@ app = Flask(__name__)
 class HybridNode:
     def __init__(self):
         self.running = True
-        
         self.cached_rssi = 0
         self.last_rssi_time = 0
-        
         self.bt_thread = threading.Thread(target=self.run_bt_server)
         self.bt_thread.daemon = True
         self.bt_thread.start()
@@ -234,30 +199,50 @@ class HybridNode:
                     data = imu.get_data() if imu else {"status": "no_imu"}
                     
                     if data["status"] == "ONLINE":
-                        # Calculate high-res attitude
                         att = calculate_attitude(data["accel"], data["mag"])
                         data["attitude"] = att
-                        
-                        # Total G calculation
                         ax, ay, az = data["accel"]["x"], data["accel"]["y"], data["accel"]["z"]
                         data["total_g"] = round(math.sqrt(ax**2 + ay**2 + az**2) / 9.81, 2)
 
-                    # 2. Gather System Data
-                    # Merge Quick stats (every frame) and Slow stats (cached)
+                    # 2. System Data
                     sys_data = sys_mon.get_quick_stats()
                     sys_data.update(sys_mon.get_slow_stats())
                     data["sys"] = sys_data
                     
-                    # 3. Connectivity
-                    data["rssi"] = self.get_rssi(addr[0])
+                    # 3. Dynamic Camera Metadata (Deep Hardware Level)
+                    try:
+                        meta = cam.picam2.metadata
+                        if meta:
+                            # FrameDuration is in microseconds. 1e6 / duration = FPS
+                            frame_dur = meta.get("FrameDuration", 33333)
+                            fps = 1000000.0 / frame_dur if frame_dur > 0 else 0
+                            
+                            gains = meta.get("ColourGains", (0.0, 0.0))
+                            
+                            data["cam_meta"] = {
+                                "res": f"{CURRENT_RES[0]}x{CURRENT_RES[1]}",
+                                "fmt": "RGB888",
+                                "fps": round(fps, 1),
+                                "exp_ms": round(meta.get("ExposureTime", 0) / 1000.0, 2),
+                                "a_gain": round(meta.get("AnalogueGain", 1.0), 2),
+                                "d_gain": round(meta.get("DigitalGain", 1.0), 2),
+                                "temp_k": int(meta.get("ColourTemperature", 0)),
+                                "lens": round(meta.get("LensPosition", 0.0), 2),
+                                "awb_r": round(gains[0], 2),
+                                "awb_b": round(gains[1], 2),
+                                "af_state": int(meta.get("AfState", 0)) # 0=Idle, 1=Scan, 2=Success
+                            }
+                    except Exception: 
+                        data["cam_meta"] = {"res": "ERR"}
                     
                     # 4. Transmit
+                    data["rssi"] = self.get_rssi(addr[0])
                     msg = json.dumps(data).encode('utf-8')
                     header = struct.pack("!4sI", b"TELE", len(msg))
                     try: client.sendall(header + msg)
                     except: break
                     
-                    time.sleep(0.05) # 20Hz update
+                    time.sleep(0.05)
             except: time.sleep(1)
 
     def listen_commands(self, sock):
@@ -269,7 +254,6 @@ class HybridNode:
                 payload = sock.recv(length)
             except: break
 
-# --- FLASK ROUTES ---
 @app.route('/stream')
 def stream():
     def generate():
