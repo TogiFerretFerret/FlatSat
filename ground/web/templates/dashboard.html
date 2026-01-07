@@ -77,7 +77,8 @@
         <!-- COL 1: DYNAMICS -->
         <div class="col">
             <div class="panel">
-                <h2>Attitude</h2>
+                <h2>Attitude & Motion</h2>
+                <div class="data-row"><span>STATE</span><span class="data-val" id="motion-state">--</span></div>
                 <div class="data-row"><span>HEADING</span><span class="data-val" id="att-yaw">0°</span></div>
                 <div class="data-row"><span>PITCH</span><span class="data-val" id="att-pitch">0°</span></div>
                 <div class="data-row"><span>ROLL</span><span class="data-val" id="att-roll">0°</span></div>
@@ -143,6 +144,7 @@
         <div class="col">
             <div class="panel">
                 <h2>Health & Power</h2>
+                <div class="data-row"><span>EST POWER</span><span class="data-val" id="est-power">~0.0 W</span></div>
                 <div class="data-row"><span>CORE VOLTS</span><span class="data-val" id="cpu-volts">0.00 V</span></div>
                 <div class="data-row"><span>CPU CLOCK</span><span class="data-val" id="cpu-clock">0 MHz</span></div>
                 <div class="data-row"><span>THREADS</span><span class="data-val" id="sys-threads">0</span></div>
@@ -166,11 +168,11 @@
 
             <div class="panel">
                 <h2>Network</h2>
+                <div class="data-row"><span>QUALITY</span><span class="data-val" id="link-qual">0%</span></div>
                 <div class="data-row"><span>RX</span><span class="data-val" id="net-rx">0.0 KB/s</span></div>
                 <div class="data-row"><span>TX</span><span class="data-val" id="net-tx">0.0 KB/s</span></div>
                 <div class="data-row"><span>WIFI RSSI</span><span class="data-val" id="wifi-rssi">0 dBm</span></div>
                 <div class="data-row"><span>RETRIES</span><span class="data-val" id="wifi-retry">0</span></div>
-                <div class="data-row"><span>MISSED</span><span class="data-val" id="wifi-missed">0</span></div>
                 <div class="data-row"><span>BT RSSI</span><span class="data-val" id="bt-rssi">0 dBm</span></div>
                 <div class="data-row"><span>IP ADDR</span><span class="data-val" id="ip-addr">--</span></div>
             </div>
@@ -194,6 +196,7 @@
                 <div class="data-row"><span>GPU MEM</span><span class="data-val" id="gpu-mem">0M</span></div>
                 <div class="data-row" style="margin-top:2px;"><span>DISK USE</span><span class="data-val" id="disk-use">0 / 0 GB</span></div>
                 <div class="bar-bg"><div id="bar-disk" class="bar-fill" style="width:0%"></div></div>
+                <div class="data-row" style="margin-top:2px;"><span>CAPACITY</span><span class="data-val" id="img-cap">~0 SHOTS</span></div>
             </div>
             
             <div class="panel">
@@ -221,20 +224,20 @@
             mx: document.getElementById('mx'), my: document.getElementById('my'), mz: document.getElementById('mz'),
             qw: document.getElementById('qw'), qx: document.getElementById('qx'), qy: document.getElementById('qy'), qz: document.getElementById('qz'),
             yaw: document.getElementById('att-yaw'), pitch: document.getElementById('att-pitch'), roll: document.getElementById('att-roll'),
-            total_g: document.getElementById('total-g'), jerk: document.getElementById('jerk'),
+            total_g: document.getElementById('total-g'), jerk: document.getElementById('jerk'), motion_state: document.getElementById('motion-state'),
             // Cam
             cam_fps: document.getElementById('cam-fps'), cam_exp: document.getElementById('cam-exp'),
             cam_gain: document.getElementById('cam-gain'), cam_dgain: document.getElementById('cam-dgain'),
             cam_awb: document.getElementById('cam-awb'), cam_lens: document.getElementById('cam-lens'), cam_res: document.getElementById('cam-res'),
             // Net
-            net_rx: document.getElementById('net-rx'), net_tx: document.getElementById('net-tx'), 
+            net_rx: document.getElementById('net-rx'), net_tx: document.getElementById('net-tx'), link_qual: document.getElementById('link-qual'),
             wifi_rssi: document.getElementById('wifi-rssi'), wifi_retry: document.getElementById('wifi-retry'), 
             wifi_missed: document.getElementById('wifi-missed'), bt_rssi: document.getElementById('bt-rssi'), ip_addr: document.getElementById('ip-addr'),
             // Sys
-            cpu_volts: document.getElementById('cpu-volts'), cpu_clock: document.getElementById('cpu-clock'),
+            cpu_volts: document.getElementById('cpu-volts'), cpu_clock: document.getElementById('cpu-clock'), est_power: document.getElementById('est-power'),
             throttle_hex: document.getElementById('throttle-hex'), sys_threads: document.getElementById('sys-threads'),
             cpu_load: document.getElementById('cpu-load'), cpu_temp: document.getElementById('cpu-temp'), imu_temp: document.getElementById('imu-temp'),
-            ram_use: document.getElementById('ram-use'), gpu_mem: document.getElementById('gpu-mem'), disk_use: document.getElementById('disk-use'),
+            ram_use: document.getElementById('ram-use'), gpu_mem: document.getElementById('gpu-mem'), disk_use: document.getElementById('disk-use'), img_cap: document.getElementById('img-cap'),
             // Bars & Lists
             bar_load: document.getElementById('bar-load'), bar_temp: document.getElementById('bar-temp'), 
             bar_ram: document.getElementById('bar-ram'), bar_disk: document.getElementById('bar-disk'),
@@ -250,7 +253,16 @@
             ui.conn.style.color = (d.status === "ONLINE") ? "#00ff41" : "red";
 
             if (d.accel) { ui.ax.innerText = d.accel.x.toFixed(2); ui.ay.innerText = d.accel.y.toFixed(2); ui.az.innerText = d.accel.z.toFixed(2); }
-            if (d.gyro) { ui.gx.innerText = d.gyro.x.toFixed(1); ui.gy.innerText = d.gyro.y.toFixed(1); ui.gz.innerText = d.gyro.z.toFixed(1); }
+            if (d.gyro) { 
+                ui.gx.innerText = d.gyro.x.toFixed(1); ui.gy.innerText = d.gyro.y.toFixed(1); ui.gz.innerText = d.gyro.z.toFixed(1); 
+                // Derived: Motion State
+                const g_mag = Math.sqrt(d.gyro.x**2 + d.gyro.y**2 + d.gyro.z**2);
+                let state = "STATIONARY"; let color = "#00ff41";
+                if (g_mag > 150) { state = "TUMBLING"; color = "#ff0000"; }
+                else if (g_mag > 30) { state = "MANEUVERING"; color = "#ffcc00"; }
+                else if (g_mag > 2) { state = "STABLE"; color = "#0088ff"; }
+                ui.motion_state.innerText = state; ui.motion_state.style.color = color;
+            }
             if (d.mag) { ui.mx.innerText = d.mag.x.toFixed(0); ui.my.innerText = d.mag.y.toFixed(0); ui.mz.innerText = d.mag.z.toFixed(0); }
             if (d.quaternion) { ui.qw.innerText = d.quaternion[0].toFixed(2); ui.qx.innerText = d.quaternion[1].toFixed(2); ui.qy.innerText = d.quaternion[2].toFixed(2); ui.qz.innerText = d.quaternion[3].toFixed(2); }
             if (d.attitude) { ui.yaw.innerText = d.attitude.yaw.toFixed(0)+"°"; ui.pitch.innerText = d.attitude.pitch.toFixed(0)+"°"; ui.roll.innerText = d.attitude.roll.toFixed(0)+"°"; }
@@ -282,6 +294,13 @@
                 ui.net_rx.innerText = (d.sys.rx_kbps||0).toFixed(1) + " KB/s";
                 ui.net_tx.innerText = (d.sys.tx_kbps||0).toFixed(1) + " KB/s";
                 ui.wifi_rssi.innerText = (d.sys.wifi_dbm||0) + " dBm";
+                // Derived: Link Quality
+                if (d.sys.wifi_dbm) {
+                    let qual = Math.max(0, Math.min(100, (d.sys.wifi_dbm + 90) * (100/60)));
+                    ui.link_qual.innerText = qual.toFixed(0) + "%";
+                    ui.link_qual.style.color = qual < 30 ? "red" : (qual < 60 ? "orange" : "#00ff41");
+                }
+                
                 ui.wifi_retry.innerText = d.sys.wifi_retry || 0;
                 ui.wifi_missed.innerText = d.sys.wifi_missed || 0;
                 ui.ip_addr.innerText = d.sys.ip_addr || "--";
@@ -293,11 +312,23 @@
                 if(d.sys.cpu_temp > 80) ui.bar_temp.className = "bar-fill bar-alert"; else ui.bar_temp.className = "bar-fill";
                 ui.imu_temp.innerText = (d.sys.imu_temp || 0) + "C";
                 
+                // Derived: Power Estimate
+                let watts = 3.0; // Idle
+                watts += (d.sys.cpu_load / 100) * 3.5; // CPU Load
+                if (d.cam_meta && d.cam_meta.fps > 0) watts += 1.2; // Cam
+                ui.est_power.innerText = "~" + watts.toFixed(1) + " W";
+
                 ui.ram_use.innerText = `${d.sys.ram_used_mb}/${d.sys.ram_total_mb} MB`;
                 ui.bar_ram.style.width = (d.sys.ram_percent||0) + "%";
                 ui.gpu_mem.innerText = d.sys.gpu_mem || "0M";
                 ui.disk_use.innerText = `${d.sys.disk_used_gb}/${d.sys.disk_total_gb} GB`;
                 ui.bar_disk.style.width = (d.sys.disk_percent||0) + "%";
+                
+                // Derived: Image Capacity (Assume 4MB/pic)
+                if (d.sys.disk_total_gb) {
+                    const free = (d.sys.disk_total_gb - d.sys.disk_used_gb) * 1024;
+                    ui.img_cap.innerText = "~" + Math.floor(free / 4) + " SHOTS";
+                }
                 
                 ui.uptime.innerText = new Date(d.sys.uptime_script * 1000).toISOString().substr(11, 8);
 
