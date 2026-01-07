@@ -6,319 +6,146 @@
     <title>Artemis Ground Station</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        :root {
-            --bg-color: #0d0d0d;
-            --panel-bg: #141414;
-            --text-main: #00ff41;
-            --text-dim: #008f11;
-            --border: #333;
-        }
-        body {
-            background-color: var(--bg-color);
-            color: var(--text-main);
-            font-family: 'Courier New', monospace;
-            margin: 0; padding: 10px;
-            height: 100vh;
-            display: flex; flex-direction: column;
-            box-sizing: border-box;
-            font-size: 0.8rem;
-        }
-        header {
-            border-bottom: 2px solid var(--text-main);
-            margin-bottom: 10px; padding-bottom: 5px;
-            display: flex; justify-content: space-between;
-        }
-        h1 { margin: 0; font-size: 1.2rem; letter-spacing: 2px; }
-        
-        /* Layout Grid */
-        .main-layout {
-            display: grid;
-            grid-template-columns: 1fr 1.8fr 1fr; /* Sidebars | Video | Sidebars */
-            grid-template-rows: 1fr auto;
-            gap: 10px;
-            flex-grow: 1;
-            min-height: 0;
-        }
-        
-        .panel {
-            background: var(--panel-bg);
-            border: 1px solid var(--border);
-            padding: 8px;
-            display: flex; flex-direction: column;
-            overflow-y: auto;
-        }
-        .panel h2 {
-            margin: 0 0 8px 0;
-            border-bottom: 1px solid #444;
-            padding-bottom: 4px;
-            font-size: 0.9rem; color: #fff;
-        }
-
-        /* Video */
-        .video-wrapper {
-            display: flex; flex-direction: column; height: 100%;
-        }
-        .video-box {
-            flex-grow: 1; background: #000; border: 1px solid #444;
-            display: flex; align-items: center; justify-content: center;
-            position: relative;
-        }
-        img#video-feed { max-width: 100%; max-height: 100%; }
-        
-        /* Stats */
-        .stat-row { display: flex; justify-content: space-between; margin-bottom: 2px; }
-        .stat-val { font-weight: bold; color: #fff; }
-        
-        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 3px; text-align: center; margin-bottom: 8px; }
-        .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 3px; text-align: center; margin-bottom: 8px; }
-        
-        .box-val { background: #222; padding: 2px; border: 1px solid #333; }
-        .box-lbl { font-size: 0.65rem; color: #888; display: block; }
-        .box-num { font-size: 0.95rem; color: #fff; font-weight: bold; }
-
-        /* Buttons */
-        .btn {
-            background: #222; color: #fff; border: 1px solid #444;
-            padding: 8px; cursor: pointer; width: 100%; font-family: inherit;
-            margin-top: 5px; transition: 0.2s; font-weight: bold;
-        }
+        :root { --bg-color: #0d0d0d; --text-main: #00ff41; --border: #333; }
+        body { background: var(--bg-color); color: var(--text-main); font-family: 'Courier New', monospace; padding: 10px; display: flex; flex-direction: column; height: 100vh; margin: 0; box-sizing: border-box; }
+        .grid { display: grid; grid-template-columns: 1fr 1.8fr 1fr; grid-template-rows: 1fr auto; gap: 10px; flex-grow: 1; min-height: 0; }
+        .panel { background: #141414; border: 1px solid var(--border); padding: 8px; overflow-y: auto; display: flex; flex-direction: column; }
+        .box-val { background: #222; border: 1px solid #333; padding: 2px; text-align: center; }
+        .box-num { font-weight: bold; font-size: 1.1em; color: #fff; }
+        .box-lbl { font-size: 0.7em; color: #888; display: block; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-bottom: 8px; }
+        .btn { background: #222; color: #fff; border: 1px solid #444; padding: 10px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 5px; }
         .btn:hover { background: #333; }
         .btn-green { background: #004400; border-color: #00ff41; }
-        .btn-green:hover { background: #006600; }
         .btn-red { background: #440000; border-color: #ff0000; }
-        .btn-red:hover { background: #660000; }
-
-        /* Gallery */
-        .gallery-panel {
-            grid-column: 1 / -1; /* Span full width */
-            height: 120px;
-            display: flex; gap: 10px;
-            overflow-x: auto;
-            align-items: center;
-            padding: 10px;
-            background: #111; border: 1px solid #333;
-        }
-        .thumb {
-            height: 100%; aspect-ratio: 16/9; 
-            object-fit: cover; border: 1px solid #555;
-            cursor: pointer; opacity: 0.8; transition: 0.2s;
-        }
-        .thumb:hover { opacity: 1; transform: scale(1.05); border-color: #fff; }
-
-        /* Offset Control */
-        #track-status { font-weight: bold; text-align: center; padding: 5px; margin-bottom: 5px; background: #222; border: 1px solid #333; }
-        
-        /* Badges */
-        .badge { background: #222; padding: 2px 5px; font-size: 0.7rem; border: 1px solid #333; display: flex; justify-content: space-between; margin-bottom: 2px;}
+        .btn-blue { background: #000044; border-color: #0088ff; }
+        img.video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+        .gallery { height: 100px; display: flex; gap: 5px; overflow-x: auto; background: #111; padding: 5px; grid-column: 1 / -1; }
+        .thumb { height: 100%; border: 1px solid #444; cursor: pointer; }
     </style>
 </head>
 <body>
-    <header>
-        <h1>ARTEMIS COMMAND</h1>
-        <div>STATUS: <span id="status-text" style="color:red">CONNECTING</span></div>
-    </header>
+    <div style="display:flex; justify-content:space-between; margin-bottom:10px; border-bottom:2px solid #00ff41;">
+        <h2>ARTEMIS COMMAND</h2>
+        <h2 id="status">CONNECTING...</h2>
+    </div>
 
-    <div class="main-layout">
-        
-        <!-- COL 1: FLIGHT DYNAMICS -->
+    <div class="grid">
+        <!-- LEFT -->
         <div class="panel">
-            <h2>FLIGHT DYNAMICS</h2>
+            <span class="box-lbl">ACCEL</span>
+            <div class="grid-3">
+                <div class="box-val"><span id="ax">0.0</span></div>
+                <div class="box-val"><span id="ay">0.0</span></div>
+                <div class="box-val"><span id="az">0.0</span></div>
+            </div>
+            <span class="box-lbl">GYRO</span>
+            <div class="grid-3">
+                <div class="box-val"><span id="gx">0.0</span></div>
+                <div class="box-val"><span id="gy">0.0</span></div>
+                <div class="box-val"><span id="gz">0.0</span></div>
+            </div>
+            <span class="box-lbl">MAG</span>
+            <div class="grid-3">
+                <div class="box-val"><span id="mx">0.0</span></div>
+                <div class="box-val"><span id="my">0.0</span></div>
+                <div class="box-val"><span id="mz">0.0</span></div>
+            </div>
+        </div>
+
+        <!-- CENTER -->
+        <div class="panel" style="padding:0;">
+            <img id="video" class="video" src="{{ video_url }}">
+            <button class="btn btn-green" onclick="snap()">SNAP (4.6K)</button>
+        </div>
+
+        <!-- RIGHT -->
+        <div class="panel">
+            <span class="box-lbl">OFFSET (Meters)</span>
+            <div class="grid-3">
+                <div class="box-val"><span id="off-x">0.00</span></div>
+                <div class="box-val"><span id="off-y">0.00</span></div>
+                <div class="box-val"><span id="off-z">0.00</span></div>
+            </div>
             
-            <span class="box-lbl">ACCEL (m/s²)</span>
-            <div class="grid-3">
-                <div class="box-val"><span class="box-lbl">X</span><span class="box-num" id="ax">0.0</span></div>
-                <div class="box-val"><span class="box-lbl">Y</span><span class="box-num" id="ay">0.0</span></div>
-                <div class="box-val"><span class="box-lbl">Z</span><span class="box-num" id="az">0.0</span></div>
-            </div>
-
-            <span class="box-lbl">GYRO (deg/s)</span>
-            <div class="grid-3">
-                <div class="box-val"><span class="box-lbl">X</span><span class="box-num" id="gx">0.0</span></div>
-                <div class="box-val"><span class="box-lbl">Y</span><span class="box-num" id="gy">0.0</span></div>
-                <div class="box-val"><span class="box-lbl">Z</span><span class="box-num" id="gz">0.0</span></div>
-            </div>
-
-            <span class="box-lbl">MAGNETIC (µT)</span>
-            <div class="grid-3">
-                <div class="box-val"><span class="box-lbl">X</span><span class="box-num" id="mx">0.0</span></div>
-                <div class="box-val"><span class="box-lbl">Y</span><span class="box-num" id="my">0.0</span></div>
-                <div class="box-val"><span class="box-lbl">Z</span><span class="box-num" id="mz">0.0</span></div>
-            </div>
-
-            <span class="box-lbl">QUATERNION</span>
-            <div class="grid-4">
-                <div class="box-val"><span class="box-lbl">W</span><span class="box-num" id="qw">0.00</span></div>
-                <div class="box-val"><span class="box-lbl">X</span><span class="box-num" id="qx">0.00</span></div>
-                <div class="box-val"><span class="box-lbl">Y</span><span class="box-num" id="qy">0.00</span></div>
-                <div class="box-val"><span class="box-lbl">Z</span><span class="box-num" id="qz">0.00</span></div>
-            </div>
-
-            <span class="box-lbl">ORIENTATION</span>
-            <div class="grid-3">
-                <div class="box-val"><span class="box-lbl">ROLL</span><span class="box-num" id="roll">0</span></div>
-                <div class="box-val"><span class="box-lbl">PITCH</span><span class="box-num" id="pitch">0</span></div>
-                <div class="box-val"><span class="box-lbl">YAW</span><span class="box-num" id="yaw">0</span></div>
-            </div>
-        </div>
-
-        <!-- COL 2: OPTICAL + TRACKING -->
-        <div class="panel">
-            <h2>OPTICAL FEED</h2>
-            <div class="video-wrapper">
-                <div class="video-box">
-                    <img id="video-feed" src="{{ video_url }}" onerror="this.style.display='none'">
-                    <div style="position:absolute; top:5px; right:5px; color:red; font-weight:bold;">LIVE 1080p</div>
-                </div>
-                <button class="btn btn-green" id="snap-btn" onclick="takeSnapshot()">
-                    <i class="fas fa-camera"></i> SNAPSHOT (4.6K)
-                </button>
-            </div>
-        </div>
-
-        <!-- COL 3: SYSTEMS & OFFSET -->
-        <div class="panel">
-            <h2>LOCATIONAL OFFSET</h2>
-            <div id="track-status">INACTIVE</div>
-            <div class="grid-3">
-                <div class="box-val"><span class="box-lbl">DIST X</span><span class="box-num" id="off-x">0.00</span>m</div>
-                <div class="box-val"><span class="box-lbl">DIST Y</span><span class="box-num" id="off-y">0.00</span>m</div>
-                <div class="box-val"><span class="box-lbl">DIST Z</span><span class="box-num" id="off-z">0.00</span>m</div>
+            <div id="train-status" style="text-align:center; margin-bottom:5px; font-weight:bold; color:#888;">READY</div>
+            
+            <div style="display:flex; gap:5px; margin-bottom: 5px;">
+                <button class="btn btn-blue" onclick="track('calibrate_start')">TRAIN START</button>
+                <button class="btn btn-blue" onclick="track('calibrate_stop')">TRAIN STOP</button>
             </div>
             <div style="display:flex; gap:5px;">
-                <button class="btn btn-green" onclick="toggleTrack('start')">START</button>
-                <button class="btn btn-red" onclick="toggleTrack('stop')">STOP</button>
+                <button class="btn btn-green" onclick="track('start')">START TRACK</button>
+                <button class="btn btn-red" onclick="track('stop')">STOP TRACK</button>
             </div>
 
-            <h2 style="margin-top:15px;">SYSTEM VITALS</h2>
-            <div class="badge"><span style="color:#888">CPU LOAD</span><span id="sys-cpu" style="color:#fff">0%</span></div>
-            <div class="badge"><span style="color:#888">RAM USE</span><span id="sys-mem" style="color:#fff">0%</span></div>
-            <div class="badge"><span style="color:#888">DISK USE</span><span id="sys-disk" style="color:#fff">0%</span></div>
-            
-            <div class="grid-3" style="margin-top:5px;">
-                <div class="box-val"><span class="box-lbl">VOLTS</span><span class="box-num" id="sys-volts">0.0</span>V</div>
-                <div class="box-val"><span class="box-lbl">CLOCK</span><span class="box-num" id="sys-clock">0</span>M</div>
-                <div class="box-val"><span class="box-lbl">TEMP</span><span class="box-num" id="temp-cpu">0</span>°C</div>
+            <div style="margin-top:auto;">
+                <span class="box-lbl">VITALS</span>
+                <div style="display:flex; justify-content:space-between; border-bottom:1px solid #333;">
+                    <span>CPU</span><span id="cpu">0%</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; border-bottom:1px solid #333;">
+                    <span>TEMP</span><span id="temp">0C</span>
+                </div>
+                <div style="display:flex; justify-content:space-between;">
+                    <span>RSSI</span><span id="rssi">0</span>
+                </div>
             </div>
-
-            <div class="badge"><span style="color:#888">WIFI RSSI</span><span id="sys-wifi" style="color:#fff">-0 dBm</span></div>
-            <div class="badge"><span style="color:#888">BT RSSI</span><span id="rssi" style="color:#fff">-0 dBm</span></div>
-            <div class="badge"><span style="color:#888">UPTIME</span><span id="sys-uptime" style="color:#fff">00:00</span></div>
-            <div class="badge"><span style="color:#888">POWER</span><span id="sys-throttle" style="color:#0f0">NOMINAL</span></div>
         </div>
 
-        <!-- ROW 2: GALLERY -->
-        <div class="gallery-panel" id="gallery">
-            <!-- Thumbnails injected here -->
-        </div>
+        <!-- BOTTOM -->
+        <div class="gallery" id="gallery"></div>
     </div>
 
     <script>
-        // --- LOGIC ---
-        function updateDisplay(data) {
-            // Header Status
-            document.getElementById('status-text').innerText = data.status || "OFFLINE";
-            document.getElementById('status-text').style.color = (data.status === "ONLINE") ? "#00ff41" : "red";
-
-            // Flight Dynamics
-            if (data.accel) ['x','y','z'].forEach(k => document.getElementById('a'+k).innerText = data.accel[k].toFixed(1));
-            if (data.gyro) ['x','y','z'].forEach(k => document.getElementById('g'+k).innerText = data.gyro[k].toFixed(1));
-            if (data.mag) ['x','y','z'].forEach(k => document.getElementById('m'+k).innerText = data.mag[k].toFixed(0));
+        function update(d) {
+            document.getElementById('status').innerText = d.status;
+            if(d.accel) ['x','y','z'].forEach(k => document.getElementById('a'+k).innerText = d.accel[k].toFixed(1));
+            if(d.gyro) ['x','y','z'].forEach(k => document.getElementById('g'+k).innerText = d.gyro[k].toFixed(1));
+            if(d.mag) ['x','y','z'].forEach(k => document.getElementById('m'+k).innerText = d.mag[k].toFixed(0));
+            if(d.pos_offset) ['x','y','z'].forEach(k => document.getElementById('off-'+k).innerText = d.pos_offset[k].toFixed(2));
+            if(d.cpu_load) document.getElementById('cpu').innerText = d.cpu_load + "%";
+            if(d.cpu_temp) document.getElementById('temp').innerText = d.cpu_temp.toFixed(1) + "C";
+            if(d.rssi) document.getElementById('rssi').innerText = d.rssi;
             
-            if (data.quaternion) {
-                ['w','x','y','z'].forEach((k, i) => document.getElementById('q'+k).innerText = data.quaternion[i].toFixed(2));
-            }
-
-            if (data.orientation_euler) {
-                document.getElementById('roll').innerText = data.orientation_euler.roll.toFixed(0);
-                document.getElementById('pitch').innerText = data.orientation_euler.pitch.toFixed(0);
-                document.getElementById('yaw').innerText = data.orientation_euler.yaw.toFixed(0);
-            }
-
-            // Locational Offset
-            if (data.pos_offset) {
-                ['x','y','z'].forEach(k => document.getElementById('off-'+k).innerText = data.pos_offset[k].toFixed(2));
-                const statusDiv = document.getElementById('track-status');
-                if (data.tracking_active) {
-                    statusDiv.innerText = "TRACKING ACTIVE";
-                    statusDiv.style.background = "#004400";
-                    statusDiv.style.color = "#00ff41";
-                } else {
-                    statusDiv.innerText = "INACTIVE";
-                    statusDiv.style.background = "#222";
-                    statusDiv.style.color = "#888";
-                }
-            }
-
-            // Systems
-            if (data.cpu_load !== undefined) document.getElementById('sys-cpu').innerText = data.cpu_load + "%";
-            if (data.cpu_temp !== undefined) document.getElementById('temp-cpu').innerText = data.cpu_temp.toFixed(1);
-            if (data.mem_percent !== undefined) document.getElementById('sys-mem').innerText = data.mem_percent + "%";
-            if (data.disk_percent !== undefined) document.getElementById('sys-disk').innerText = data.disk_percent + "%";
-            if (data.wifi_signal !== undefined) document.getElementById('sys-wifi').innerText = data.wifi_signal + " dBm";
-            if (data.rssi !== undefined) document.getElementById('rssi').innerText = data.rssi + " dBm";
-            if (data.voltage !== undefined) document.getElementById('sys-volts').innerText = data.voltage.toFixed(2);
-            if (data.clock_mhz !== undefined) document.getElementById('sys-clock').innerText = data.clock_mhz;
-            
-            if (data.uptime !== undefined) {
-                document.getElementById('sys-uptime').innerText = new Date(data.uptime * 1000).toISOString().substr(11, 8);
-            }
-            
-            if (data.throttled !== undefined) {
-                const throt = document.getElementById('sys-throttle');
-                if (data.throttled === '0x0') {
-                    throt.innerText = "NOMINAL";
-                    throt.style.color = "#00ff41";
-                } else {
-                    throt.innerText = "WARN: " + data.throttled;
-                    throt.style.color = "red";
-                }
+            const ts = document.getElementById('train-status');
+            if (d.calibrating) {
+                ts.innerText = "CALIBRATING..."; 
+                ts.style.color = "yellow";
+            } else if (d.tracking_active) {
+                ts.innerText = "TRACKING ACTIVE";
+                ts.style.color = "#00ff41";
+            } else {
+                ts.innerText = "IDLE";
+                ts.style.color = "#888";
             }
         }
 
-        async function toggleTrack(action) {
-            await fetch('/api/track', {
-                method: 'POST', 
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({action: action})
+        async function track(action) {
+            await fetch('/api/track', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action})});
+        }
+        
+        async function snap() {
+            await fetch('/api/capture', {method:'POST'});
+            loadGal();
+        }
+
+        async function loadGal() {
+            let res = await fetch('/api/captures');
+            let files = await res.json();
+            let g = document.getElementById('gallery');
+            g.innerHTML = "";
+            files.forEach(f => {
+                let i = document.createElement('img');
+                i.src = "/captures/"+f;
+                i.className = "thumb";
+                i.onclick = () => window.open(i.src);
+                g.appendChild(i);
             });
         }
 
-        async function takeSnapshot() {
-            const btn = document.getElementById('snap-btn');
-            btn.disabled = true;
-            btn.innerHTML = "CAPTURING...";
-            try {
-                await fetch('/api/capture', {method: 'POST'});
-                loadGallery();
-            } catch(e) {}
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-camera"></i> SNAPSHOT (4.6K)';
-        }
-
-        async function loadGallery() {
-            try {
-                let res = await fetch('/api/captures');
-                let files = await res.json();
-                const gal = document.getElementById('gallery');
-                gal.innerHTML = "";
-                files.forEach(f => {
-                    let img = document.createElement('img');
-                    img.src = "/captures/" + f;
-                    img.className = "thumb";
-                    img.onclick = () => window.open(img.src);
-                    gal.appendChild(img);
-                });
-            } catch(e) {}
-        }
-
-        setInterval(async () => {
-            try {
-                let res = await fetch('/api/telemetry');
-                updateDisplay(await res.json());
-            } catch(e) {}
-        }, 100);
-
-        loadGallery();
+        setInterval(async () => { try { update(await (await fetch('/api/telemetry')).json()); } catch {} }, 100);
+        loadGal();
     </script>
 </body>
 </html>
