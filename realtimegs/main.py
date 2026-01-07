@@ -68,7 +68,7 @@ class PositionTracker:
         self.vel = {"x": 0.0, "y": 0.0, "z": 0.0}
         self.last_time = time.time()
         self.active = True
-        print(f"[Physics] Tracking STARTED. World Bias: {self.world_bias}")
+        print(f"[Physics] Tracking STARTED. Bias: {self.world_bias}")
 
     def stop(self):
         self.active = False
@@ -81,6 +81,9 @@ class PositionTracker:
         dt = now - self.last_time
         self.last_time = now
 
+        # Prevent large time steps (e.g., if system hangs for a moment)
+        if dt > 0.1: dt = 0.01
+
         # 1. Rotate to World Frame
         world_raw = rotate_vector_by_quaternion(curr_accel, curr_quat)
         
@@ -89,28 +92,31 @@ class PositionTracker:
         ay = world_raw["y"] - self.world_bias["y"]
         az = world_raw["z"] - self.world_bias["z"]
 
-        # 3. ZUPT (Zero Velocity Update) & Deadband
-        # If acceleration is small (noise), snap velocity to 0 to prevent drift.
-        # Increased threshold to 0.5 for stability.
-        threshold = 0.5 
+        # 3. Tuning: Deadband & Friction
+        # Reduced threshold to catch slower hand movements
+        threshold = 0.15 # m/s^2 (approx 0.015 G)
+        friction = 0.95  # Decays velocity to stop "infinite glide"
         
+        # X-Axis
         if abs(ax) < threshold: 
             ax = 0
-            self.vel["x"] = 0 
+            self.vel["x"] *= 0.8 # Rapid stop
         else:
-            self.vel["x"] *= 0.98 # Friction
+            self.vel["x"] *= friction
 
+        # Y-Axis
         if abs(ay) < threshold: 
             ay = 0
-            self.vel["y"] = 0
+            self.vel["y"] *= 0.8
         else:
-            self.vel["y"] *= 0.98
+            self.vel["y"] *= friction
 
+        # Z-Axis
         if abs(az) < threshold: 
             az = 0
-            self.vel["z"] = 0
+            self.vel["z"] *= 0.8
         else:
-            self.vel["z"] *= 0.98
+            self.vel["z"] *= friction
 
         # 4. Integrate: Accel -> Velocity
         self.vel["x"] += ax * dt
@@ -241,6 +247,7 @@ class HybridNode:
                     data = imu.get_data() if imu else {"status": "no_imu"}
                     
                     if data["status"] == "ONLINE":
+                        # Physics Update
                         tracker.update(data["accel"], data["quaternion"])
                         data["pos_offset"] = tracker.pos
                         data["tracking_active"] = tracker.active
@@ -263,7 +270,9 @@ class HybridNode:
                     header = struct.pack("!4sI", b"TELE", len(msg))
                     try: client.sendall(header + msg)
                     except BrokenPipeError: break
-                    time.sleep(0.05)
+                    
+                    # FASTER LOOP RATE (100Hz+) for Physics
+                    time.sleep(0.005) 
             except Exception as e:
                 print(f"[BT] Connection Reset: {e}")
                 time.sleep(1)
@@ -281,8 +290,6 @@ class HybridNode:
                     payload += chunk
                 
                 cmd = type_bytes.decode('utf-8').strip()
-                print(f"[BT] Received Command: {cmd}")
-                
                 if cmd == "TRK+":
                     data = imu.get_data()
                     if data["status"] == "ONLINE":
