@@ -46,6 +46,19 @@ def rotate_vector_by_quaternion(v, q):
         "z": vz + 2.0 * (qw * z1 + z2)
     }
 
+def nlerp(q1, q2, alpha):
+    """ Normalized Linear Interpolation for Quaternions (Sensor Fusion) """
+    dot = sum(a*b for a,b in zip(q1, q2))
+    
+    # Invert to take shortest path
+    if dot < 0: q2 = [-x for x in q2]
+    
+    res = [(1-alpha)*q1[i] + alpha*q2[i] for i in range(4)]
+    norm = math.sqrt(sum(x*x for x in res))
+    if norm > 0:
+        return [x/norm for x in res]
+    return q1
+
 class PositionTracker:
     def __init__(self):
         self.active = False
@@ -60,17 +73,16 @@ class PositionTracker:
         self.last_time = time.time()
 
     def start_calibration(self):
-        """ Start collecting samples for zero-point training """
         self.calibrating = True
         self.calibration_samples = 0
         self.calibration_sum = {"x":0, "y":0, "z":0}
-        print("[Physics] CALIBRATION STARTED (Collecting samples)...")
+        print("[Physics] CALIBRATION STARTED...")
 
     def stop_calibration(self):
-        """ Stop collecting and compute the average bias """
         if not self.calibrating: return
         
         if self.calibration_samples > 0:
+            # Average the samples to get a stable bias
             self.world_bias = {
                 "x": self.calibration_sum["x"] / self.calibration_samples,
                 "y": self.calibration_sum["y"] / self.calibration_samples,
@@ -83,7 +95,6 @@ class PositionTracker:
         self.calibrating = False
 
     def start(self, start_quat):
-        # Start tracking relative to the PREVIOUSLY trained bias
         self.q = start_quat if start_quat else [1.0, 0.0, 0.0, 0.0]
         self.pos = {"x": 0.0, "y": 0.0, "z": 0.0}
         self.vel = {"x": 0.0, "y": 0.0, "z": 0.0}
@@ -95,8 +106,9 @@ class PositionTracker:
         self.active = False
         print("[Physics] STOPPED.")
 
-    def update(self, curr_accel, curr_gyro, dt):
-        # --- 1. ORIENTATION UPDATE ---
+    def update(self, curr_accel, curr_gyro, target_quat, dt):
+        # --- 1. SENSOR FUSION (Complementary Filter) ---
+        # Integrate Gyro (Fast, Smooth, Drifts)
         gx = math.radians(curr_gyro["x"])
         gy = math.radians(curr_gyro["y"])
         gz = math.radians(curr_gyro["z"])
@@ -109,14 +121,28 @@ class PositionTracker:
             0.5 * ( q[0]*gz + q[1]*gy - q[2]*gx)
         ]
 
-        self.q = [q[0] + q_dot[0] * dt, q[1] + q_dot[1] * dt, q[2] + q_dot[2] * dt, q[3] + q_dot[3] * dt]
-        norm = math.sqrt(sum(x*x for x in self.q))
-        if norm > 0: self.q = [x / norm for x in self.q]
+        q_integrated = [
+            q[0] + q_dot[0] * dt,
+            q[1] + q_dot[1] * dt,
+            q[2] + q_dot[2] * dt,
+            q[3] + q_dot[3] * dt
+        ]
+        
+        # Normalize
+        norm = math.sqrt(sum(x*x for x in q_integrated))
+        if norm > 0: q_integrated = [x / norm for x in q_integrated]
+
+        # Fusion: Nudge Gyro (q_integrated) towards Accel/Mag (target_quat)
+        # Alpha 0.02 means 2% correction per frame. Keeps "Down" pointing Down.
+        if target_quat and len(target_quat) == 4:
+            self.q = nlerp(q_integrated, target_quat, 0.02)
+        else:
+            self.q = q_integrated
 
         # --- 2. ROTATE TO WORLD FRAME ---
         world_raw = rotate_vector_by_quaternion(curr_accel, self.q)
 
-        # --- 3. CALIBRATION MODE (The "Train" Phase) ---
+        # --- 3. CALIBRATION ---
         if self.calibrating:
             self.calibration_sum["x"] += world_raw["x"]
             self.calibration_sum["y"] += world_raw["y"]
@@ -127,35 +153,25 @@ class PositionTracker:
         if not self.active: return
 
         # --- 4. PHYSICS INTEGRATION ---
-        
-        # Calculate residual acceleration (Raw - Bias)
         ax = world_raw["x"] - self.world_bias["x"]
         ay = world_raw["y"] - self.world_bias["y"]
         az = world_raw["z"] - self.world_bias["z"]
 
-        # Magnitude of the disturbance (how much are we moving?)
-        disturbance = math.sqrt(ax**2 + ay**2 + az**2)
+        # Magnitude-based ZUPT (Zero Velocity Update)
+        # If total force is minimal, we are stationary.
+        movement_mag = math.sqrt(ax**2 + ay**2 + az**2)
         
-        # THRESHOLD: 0.6 m/s^2 (approx 0.06 Gs)
-        # If disturbance is below this, we assume the device is still.
-        THRESHOLD = 0.6 
-        
-        if disturbance < THRESHOLD:
-            # --- ZUPT (Zero Velocity Update) & ADAPTIVE BIAS ---
-            # We are stationary. Kill velocity.
-            self.vel = {"x": 0.0, "y": 0.0, "z": 0.0}
-            
-            # Slowly nudge bias towards current reading to fix drift
-            ADAPT_RATE = 0.01 
-            self.world_bias["x"] += ax * ADAPT_RATE
-            self.world_bias["y"] += ay * ADAPT_RATE
-            self.world_bias["z"] += az * ADAPT_RATE
-            
-            # Zero out acceleration for this frame
+        THRESHOLD = 0.25 # m/s^2 (0.025 G)
+        FRICTION = 0.90  # 10% velocity loss per step (High Drag)
+
+        if movement_mag < THRESHOLD:
+            # Stationary -> Kill Velocity
+            self.vel["x"] = 0.0
+            self.vel["y"] = 0.0
+            self.vel["z"] = 0.0
             ax, ay, az = 0, 0, 0
         else:
-            # We are moving. Apply Friction to prevent runaway.
-            FRICTION = 0.90
+            # Moving -> Apply Friction to prevent runaway
             self.vel["x"] *= FRICTION
             self.vel["y"] *= FRICTION
             self.vel["z"] *= FRICTION
@@ -229,7 +245,9 @@ class HybridNode:
                     
                     data = imu.get_data() if imu else {"status": "no_imu"}
                     if data["status"] == "ONLINE":
-                        tracker.update(data["accel"], data["gyro"], dt)
+                        # Updated to pass the IMU's absolute quaternion for Fusion
+                        tracker.update(data["accel"], data["gyro"], data.get("quaternion"), dt)
+                        
                         data["pos_offset"] = tracker.pos
                         data["calibrating"] = tracker.calibrating
                         data["tracking_active"] = tracker.active
