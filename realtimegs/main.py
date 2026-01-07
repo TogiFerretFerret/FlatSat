@@ -26,104 +26,127 @@ cam = CameraSystem()
 imu = IMU()
 cam_lock = threading.Lock()
 
-# --- PHYSICS ENGINE ---
-def rotate_vector_by_quaternion(v, q):
-    """ Rotates vector v (x,y,z) by quaternion q (w,x,y,z) into World Frame. """
-    vx, vy, vz = v['x'], v['y'], v['z']
-    qw, qx, qy, qz = q[0], q[1], q[2], q[3]
-
-    x1 = qy * vz - qz * vy
-    y1 = qz * vx - qx * vz
-    z1 = qx * vy - qy * vx
-
-    x2 = qy * z1 - qz * y1
-    y2 = qz * x1 - qx * z1
-    z2 = qx * y1 - qy * x1
-
-    return {
-        "x": vx + 2.0 * (qw * x1 + x2),
-        "y": vy + 2.0 * (qw * y1 + y2),
-        "z": vz + 2.0 * (qw * z1 + z2)
-    }
-
+# --- ADVANCED PHYSICS ENGINE (INS) ---
 class PositionTracker:
     def __init__(self):
         self.active = False
         self.pos = {"x": 0.0, "y": 0.0, "z": 0.0}
         self.vel = {"x": 0.0, "y": 0.0, "z": 0.0}
-        self.world_bias = {"x": 0.0, "y": 0.0, "z": 0.0} 
+        # We track our OWN quaternion state to avoid accelerometer noise corrupting tilt
+        self.q = [1.0, 0.0, 0.0, 0.0] # w, x, y, z
         self.last_time = time.time()
 
-    def start(self, current_accel, current_quat):
-        world_a = rotate_vector_by_quaternion(current_accel, current_quat)
-        
-        # Tare: Capture current gravity vector in World Frame as the bias
-        self.world_bias = {
-            "x": world_a["x"],
-            "y": world_a["y"],
-            "z": world_a["z"]
-        }
-        
+    def start(self, start_quat):
+        # Capture initial orientation from the static sensor fusion
+        # This gives us a good "Down" reference before we start moving
+        self.q = start_quat if start_quat else [1.0, 0.0, 0.0, 0.0]
         self.pos = {"x": 0.0, "y": 0.0, "z": 0.0}
         self.vel = {"x": 0.0, "y": 0.0, "z": 0.0}
         self.last_time = time.time()
         self.active = True
-        print(f"[Physics] Tracking STARTED. Bias: {self.world_bias}")
+        print(f"[Physics] INS Started. Initial Attitude: {self.q}")
 
     def stop(self):
         self.active = False
-        print("[Physics] Tracking STOPPED.")
+        print("[Physics] INS Stopped.")
 
-    def update(self, curr_accel, curr_quat):
+    def update(self, curr_accel, curr_gyro, dt):
         if not self.active: return
-        
-        now = time.time()
-        dt = now - self.last_time
-        self.last_time = now
 
-        # Prevent large time steps (e.g., if system hangs for a moment)
-        if dt > 0.1: dt = 0.01
+        # --- 1. ORIENTATION UPDATE (Gyro Integration) ---
+        # This decouples tilt from linear acceleration
+        gx = math.radians(curr_gyro["x"])
+        gy = math.radians(curr_gyro["y"])
+        gz = math.radians(curr_gyro["z"])
 
-        # 1. Rotate to World Frame
-        world_raw = rotate_vector_by_quaternion(curr_accel, curr_quat)
-        
-        # 2. Remove Bias (Units are m/s^2)
-        ax = world_raw["x"] - self.world_bias["x"]
-        ay = world_raw["y"] - self.world_bias["y"]
-        az = world_raw["z"] - self.world_bias["z"]
+        # Quaternion Derivative: q_dot = 0.5 * q * omega
+        q = self.q
+        q_dot = [
+            0.5 * (-q[1]*gx - q[2]*gy - q[3]*gz),
+            0.5 * ( q[0]*gx + q[2]*gz - q[3]*gy),
+            0.5 * ( q[0]*gy - q[1]*gz + q[3]*gx),
+            0.5 * ( q[0]*gz + q[1]*gy - q[2]*gx)
+        ]
 
-        # 3. Tuning: Deadband & Friction
-        # Reduced threshold to catch slower hand movements
-        threshold = 0.15 # m/s^2 (approx 0.015 G)
-        friction = 0.95  # Decays velocity to stop "infinite glide"
+        # Integrate
+        self.q = [
+            q[0] + q_dot[0] * dt,
+            q[1] + q_dot[1] * dt,
+            q[2] + q_dot[2] * dt,
+            q[3] + q_dot[3] * dt
+        ]
+
+        # Normalize Quaternion (Critical to prevent drift explosion)
+        norm = math.sqrt(sum(x*x for x in self.q))
+        if norm > 0:
+            self.q = [x / norm for x in self.q]
+
+        # --- 2. GRAVITY SUBTRACTION ---
+        # Rotate the sensor acceleration vector into the Global Frame
+        # using our Gyro-tracked orientation
+        ax_s, ay_s, az_s = curr_accel['x'], curr_accel['y'], curr_accel['z']
         
-        # X-Axis
-        if abs(ax) < threshold: 
-            ax = 0
-            self.vel["x"] *= 0.8 # Rapid stop
+        # Rotate Vector by Quaternion (v_global = q * v_sensor * q_inv)
+        qw, qx, qy, qz = self.q
+        
+        # Helper vars for rotation matrix columns
+        # (Optimized implementation of rotation)
+        xx = qx * qx
+        yy = qy * qy
+        zz = qz * qz
+        xy = qx * qy
+        xz = qx * qz
+        yz = qy * qz
+        wx = qw * qx
+        wy = qw * qy
+        wz = qw * qz
+
+        # World Acceleration
+        # 1.0 - 2.0 * (yy + zz) is diagonal term, etc.
+        ax_world = ax_s * (1.0 - 2.0 * (yy + zz)) + ay_s * (2.0 * (xy - wz)) + az_s * (2.0 * (xz + wy))
+        ay_world = ax_s * (2.0 * (xy + wz)) + ay_s * (1.0 - 2.0 * (xx + zz)) + az_s * (2.0 * (yz - wx))
+        az_world = ax_s * (2.0 * (xz - wy)) + ay_s * (2.0 * (yz + wx)) + az_s * (1.0 - 2.0 * (xx + yy))
+
+        # Subtract Gravity (9.81 m/s^2 on Z axis)
+        # Note: IMU returns m/s^2 roughly.
+        # Ideally, we assume 1G = 9.81.
+        az_world -= 9.81
+
+        # --- 3. INTEGRATION (Dead Reckoning) ---
+        
+        # Deadband threshold (ignore noise below this)
+        THRESHOLD = 0.05
+        
+        # Velocity Decay (Friction) prevents "infinite glide" drift
+        DECAY = 0.98 
+
+        # X Integration
+        if abs(ax_world) > THRESHOLD:
+            self.vel["x"] += ax_world * dt
+            self.vel["x"] *= 1.0 # No friction while moving
         else:
-            self.vel["x"] *= friction
+            self.vel["x"] *= 0.9 # Rapid stop if no accel detected (ZUPT)
 
-        # Y-Axis
-        if abs(ay) < threshold: 
-            ay = 0
-            self.vel["y"] *= 0.8
+        # Y Integration
+        if abs(ay_world) > THRESHOLD:
+            self.vel["y"] += ay_world * dt
+            self.vel["y"] *= 1.0
         else:
-            self.vel["y"] *= friction
+            self.vel["y"] *= 0.9
 
-        # Z-Axis
-        if abs(az) < threshold: 
-            az = 0
-            self.vel["z"] *= 0.8
+        # Z Integration
+        if abs(az_world) > THRESHOLD:
+            self.vel["z"] += az_world * dt
+            self.vel["z"] *= 1.0
         else:
-            self.vel["z"] *= friction
+            self.vel["z"] *= 0.9
 
-        # 4. Integrate: Accel -> Velocity
-        self.vel["x"] += ax * dt
-        self.vel["y"] += ay * dt
-        self.vel["z"] += az * dt
-        
-        # 5. Integrate: Velocity -> Position
+        # General Friction to keep things sane
+        self.vel["x"] *= DECAY
+        self.vel["y"] *= DECAY
+        self.vel["z"] *= DECAY
+
+        # Pos Update
         self.pos["x"] += self.vel["x"] * dt
         self.pos["y"] += self.vel["y"] * dt
         self.pos["z"] += self.vel["z"] * dt
@@ -243,16 +266,24 @@ class HybridNode:
                 cmd_thread.daemon = True
                 cmd_thread.start()
 
+                last_loop_time = time.time()
+
                 while self.running:
+                    # Calculate accurate DT for integration
+                    now = time.time()
+                    dt = now - last_loop_time
+                    last_loop_time = now
+
                     data = imu.get_data() if imu else {"status": "no_imu"}
                     
                     if data["status"] == "ONLINE":
-                        # Physics Update
-                        tracker.update(data["accel"], data["quaternion"])
+                        # PASS GYRO DATA TO TRACKER
+                        tracker.update(data["accel"], data["gyro"], dt)
+                        
                         data["pos_offset"] = tracker.pos
                         data["tracking_active"] = tracker.active
 
-                        # Calculate Derived Magnitudes
+                        # Calculate Derived Magnitudes for UI
                         ax, ay, az = data["accel"]["x"], data["accel"]["y"], data["accel"]["z"]
                         data["accel_mag"] = math.sqrt(ax**2 + ay**2 + az**2)
                         
@@ -271,7 +302,8 @@ class HybridNode:
                     try: client.sendall(header + msg)
                     except BrokenPipeError: break
                     
-                    # FASTER LOOP RATE (100Hz+) for Physics
+                    # Target ~100Hz loop for smooth physics
+                    # We sleep less to ensure we catch fast movements
                     time.sleep(0.005) 
             except Exception as e:
                 print(f"[BT] Connection Reset: {e}")
@@ -293,7 +325,8 @@ class HybridNode:
                 if cmd == "TRK+":
                     data = imu.get_data()
                     if data["status"] == "ONLINE":
-                        tracker.start(data["accel"], data["quaternion"])
+                        # Initialize tracker with current IMU orientation
+                        tracker.start(data["quaternion"])
                 elif cmd == "TRK-":
                     tracker.stop()
             except: break
