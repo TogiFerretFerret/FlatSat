@@ -17,6 +17,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CAPTURE_DIR = os.path.join(BASE_DIR, "captures")
 if not os.path.exists(CAPTURE_DIR): os.makedirs(CAPTURE_DIR)
 
+# Initialize Flask with specific folder paths if needed, or defaults
 app = Flask(__name__, template_folder="web/templates", static_folder="web/static")
 
 # Global State
@@ -74,6 +75,12 @@ threading.Thread(target=bt_client_thread, daemon=True).start()
 @app.route('/')
 def index():
     return render_template('dashboard.html')
+
+@app.route('/api/telemetry')
+def api_telemetry():
+    """JSON API for Polling (Restored)"""
+    with data_lock:
+        return jsonify(telemetry_data)
 
 @app.route('/telemetry_stream')
 def telemetry_stream():

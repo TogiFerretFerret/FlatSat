@@ -9,12 +9,10 @@
         :root { --bg: #050505; --panel: #111; --border: #333; --text: #00ff41; --dim: #00661a; --warn: #ffcc00; --alert: #ff0000; }
         body { background: var(--bg); color: var(--text); font-family: 'Consolas', 'Courier New', monospace; padding: 10px; margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; }
         
-        /* Layout */
         header { display: flex; justify-content: space-between; border-bottom: 2px solid var(--text); margin-bottom: 10px; padding-bottom: 5px; }
         .main-grid { display: grid; grid-template-columns: 260px 1fr 260px; grid-template-rows: 1fr auto; gap: 10px; flex-grow: 1; min-height: 0; }
         .col { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
         
-        /* Components */
         .panel { background: var(--panel); border: 1px solid var(--border); padding: 8px; }
         h2 { margin: 0 0 5px 0; font-size: 0.9em; color: #fff; border-bottom: 1px solid var(--dim); text-transform: uppercase; letter-spacing: 1px; }
         
@@ -27,12 +25,10 @@
         .lbl { display: block; font-size: 0.6em; color: #888; }
         .val { font-size: 0.9em; font-weight: bold; }
 
-        /* Video */
         .vid-container { flex-grow: 1; background: #000; border: 1px solid var(--border); position: relative; display: flex; align-items: center; justify-content: center; }
         img.live-feed { max-width: 100%; max-height: 100%; }
         .overlay { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 5px; font-size: 0.8em; border: 1px solid var(--dim); }
 
-        /* Bars & Badges */
         .bar-bg { width: 100%; height: 6px; background: #222; margin-top: 2px; }
         .bar-fill { height: 100%; background: var(--text); width: 0%; transition: width 0.2s; }
         .bar-warn { background: var(--warn); }
@@ -43,19 +39,16 @@
         .btn { background: var(--panel); border: 1px solid var(--text); color: var(--text); width: 100%; padding: 10px; cursor: pointer; font-weight: bold; margin-top: 5px; }
         .btn:hover { background: var(--dim); color: #fff; }
         
-        /* Process Table */
         table { width: 100%; border-collapse: collapse; font-size: 0.7em; }
         th { text-align: left; color: #888; border-bottom: 1px solid #333; }
         td { padding: 2px 0; }
         .high-cpu { color: var(--warn); }
 
-        /* Gallery Strip */
         .gallery-panel { grid-column: 1 / -1; height: 120px; display: flex; flex-direction: column; overflow: hidden; }
         .gallery-strip { flex-grow: 1; display: flex; gap: 8px; overflow-x: auto; padding: 5px; background: #080808; border-top: 1px solid #333; align-items: center; }
         .thumb { height: 100%; border: 1px solid #444; cursor: pointer; transition: transform 0.1s, border-color 0.1s; aspect-ratio: 16/9; object-fit: cover; }
         .thumb:hover { transform: scale(1.05); border-color: var(--text); }
 
-        /* Modal Lightbox */
         #lightbox { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 1000; justify-content: center; align-items: center; flex-direction: column; }
         #lightbox img { max-width: 90%; max-height: 85%; border: 2px solid var(--text); box-shadow: 0 0 20px var(--dim); }
         #lightbox-close { margin-top: 10px; color: #fff; cursor: pointer; font-size: 1.2em; text-decoration: underline; }
@@ -78,9 +71,7 @@
                 <div class="data-row" style="margin-top:5px; border-top:1px solid #333; padding-top:2px;">
                     <span>TOTAL G</span><span class="data-val" id="total-g">1.00</span>
                 </div>
-                <div class="data-row">
-                    <span>JERK (m/s³)</span><span class="data-val" id="jerk">0.0</span>
-                </div>
+                <div class="data-row"><span>JERK (m/s³)</span><span class="data-val" id="jerk">0.0</span></div>
             </div>
 
             <div class="panel">
@@ -101,6 +92,24 @@
                     <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="az">0.0</span></div>
                 </div>
             </div>
+
+            <div class="panel">
+                <h2>Gyroscope</h2>
+                <div class="grid-3">
+                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="gx">0.0</span></div>
+                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="gy">0.0</span></div>
+                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="gz">0.0</span></div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>Magnetometer</h2>
+                <div class="grid-3">
+                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="mx">0.0</span></div>
+                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="my">0.0</span></div>
+                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="mz">0.0</span></div>
+                </div>
+            </div>
         </div>
 
         <!-- MIDDLE: OPTICAL -->
@@ -115,154 +124,198 @@
         <!-- RIGHT: SYSTEMS -->
         <div class="col">
             <div class="panel">
+                <h2>Health & Power</h2>
+                <div class="data-row"><span>CORE VOLTS</span><span class="data-val" id="cpu-volts">0.00 V</span></div>
+                <div class="data-row"><span>CPU CLOCK</span><span class="data-val" id="cpu-clock">0 MHz</span></div>
+                <div class="data-row"><span>THREADS</span><span class="data-val" id="sys-threads">0</span></div>
+                <div class="data-row"><span>THROTTLE</span><span class="data-val" id="throttle-hex">0x0</span></div>
+                <div id="health-badges" style="margin-top:5px; display:flex; flex-wrap:wrap; gap:2px;">
+                    <span id="flag-uv" class="badge">UNDERVOLT</span>
+                    <span id="flag-freq" class="badge">FREQ_CAP</span>
+                    <span id="flag-throt" class="badge">THROTTLED</span>
+                    <span id="flag-temp" class="badge">OVERHEAT</span>
+                </div>
+            </div>
+
+            <div class="panel">
                 <h2>Optical Sensor</h2>
                 <div class="data-row"><span>FPS / EXP</span><span class="data-val"><span id="cam-fps">0</span> / <span id="cam-exp">0ms</span></span></div>
                 <div class="data-row"><span>GAIN (A/D)</span><span class="data-val"><span id="cam-gain">1x</span> / <span id="cam-dgain">1x</span></span></div>
                 <div class="data-row"><span>AWB (R/B)</span><span class="data-val" id="cam-awb">--</span></div>
                 <div class="data-row"><span>AF STATE</span><span class="data-val" id="cam-lens">IDLE</span></div>
+                <div class="data-row"><span>RESOLUTION</span><span class="data-val" id="cam-res">--</span></div>
             </div>
 
             <div class="panel">
                 <h2>Network</h2>
                 <div class="data-row"><span>RX</span><span class="data-val" id="net-rx">0.0 KB/s</span></div>
                 <div class="data-row"><span>TX</span><span class="data-val" id="net-tx">0.0 KB/s</span></div>
-                <div class="data-row"><span>RSSI</span><span class="data-val" id="wifi-rssi">0 dBm</span></div>
+                <div class="data-row"><span>WIFI RSSI</span><span class="data-val" id="wifi-rssi">0 dBm</span></div>
+                <div class="data-row"><span>RETRIES</span><span class="data-val" id="wifi-retry">0</span></div>
+                <div class="data-row"><span>MISSED</span><span class="data-val" id="wifi-missed">0</span></div>
+                <div class="data-row"><span>BT RSSI</span><span class="data-val" id="bt-rssi">0 dBm</span></div>
+                <div class="data-row"><span>IP ADDR</span><span class="data-val" id="ip-addr">--</span></div>
             </div>
 
             <div class="panel">
-                <h2>System Load</h2>
-                <div class="data-row"><span>CPU</span><span class="data-val" id="cpu-load">0%</span></div>
+                <h2>Thermals & Load</h2>
+                <div class="data-row"><span>CPU LOAD</span><span class="data-val" id="cpu-load">0%</span></div>
                 <div class="bar-bg"><div id="bar-load" class="bar-fill" style="width:0%"></div></div>
-                <div class="data-row" style="margin-top:2px;"><span>TEMP</span><span class="data-val" id="cpu-temp">0C</span></div>
+                <div class="data-row" style="margin-top:2px;"><span>CPU TEMP</span><span class="data-val" id="cpu-temp">0C</span></div>
                 <div class="bar-bg"><div id="bar-temp" class="bar-fill" style="width:0%"></div></div>
-                <div id="health-badges" style="margin-top:5px;">
-                    <span id="flag-throt" class="badge">THROTTLED</span>
-                    <span id="flag-uv" class="badge">UNDERVOLT</span>
-                </div>
+                <div class="data-row" style="margin-top:2px;"><span>IMU TEMP</span><span class="data-val" id="imu-temp">0C</span></div>
+            </div>
+
+            <div class="panel">
+                <h2>Memory & Storage</h2>
+                <div class="data-row"><span>RAM USE</span><span class="data-val" id="ram-use">0 / 0 MB</span></div>
+                <div class="bar-bg"><div id="bar-ram" class="bar-fill" style="width:0%"></div></div>
+                <div class="data-row" style="margin-top:5px;"><span>GPU MEM</span><span class="data-val" id="gpu-mem">0M</span></div>
+                <div class="data-row" style="margin-top:2px;"><span>DISK USE</span><span class="data-val" id="disk-use">0 / 0 GB</span></div>
+                <div class="bar-bg"><div id="bar-disk" class="bar-fill" style="width:0%"></div></div>
+            </div>
+            
+            <div class="panel">
+                <h2>Top Processes</h2>
+                <table><thead><tr><th>PID</th><th>NAME</th><th>CPU</th></tr></thead><tbody id="proc-list"></tbody></table>
+            </div>
+
+            <div class="panel" style="margin-top: 10px;">
+               <div class="data-row"><span>UPTIME</span><span class="data-val" id="uptime">0s</span></div>
             </div>
         </div>
 
-        <!-- BOTTOM: GALLERY -->
         <div class="panel gallery-panel">
             <h2>Mission Gallery</h2>
             <div id="gallery" class="gallery-strip"></div>
         </div>
     </div>
 
-    <!-- LIGHTBOX MODAL -->
     <div id="lightbox" onclick="closeLightbox()">
         <img id="lightbox-img" src="" onclick="event.stopPropagation()">
         <div id="lightbox-close">CLICK TO CLOSE</div>
     </div>
 
     <script>
-        // --- UI CACHE ---
         const ui = {
             conn: document.getElementById('conn-status'),
-            // Sensors
             ax: document.getElementById('ax'), ay: document.getElementById('ay'), az: document.getElementById('az'),
+            gx: document.getElementById('gx'), gy: document.getElementById('gy'), gz: document.getElementById('gz'),
+            mx: document.getElementById('mx'), my: document.getElementById('my'), mz: document.getElementById('mz'),
             qw: document.getElementById('qw'), qx: document.getElementById('qx'), qy: document.getElementById('qy'), qz: document.getElementById('qz'),
             yaw: document.getElementById('att-yaw'), pitch: document.getElementById('att-pitch'), roll: document.getElementById('att-roll'),
             total_g: document.getElementById('total-g'), jerk: document.getElementById('jerk'),
             // Cam
             cam_fps: document.getElementById('cam-fps'), cam_exp: document.getElementById('cam-exp'),
             cam_gain: document.getElementById('cam-gain'), cam_dgain: document.getElementById('cam-dgain'),
-            cam_awb: document.getElementById('cam-awb'), cam_lens: document.getElementById('cam-lens'),
-            // Net & Sys
-            net_rx: document.getElementById('net-rx'), net_tx: document.getElementById('net-tx'), wifi_rssi: document.getElementById('wifi-rssi'),
-            cpu_load: document.getElementById('cpu-load'), cpu_temp: document.getElementById('cpu-temp'),
-            bar_load: document.getElementById('bar-load'), bar_temp: document.getElementById('bar-temp'),
-            // Gallery
-            gallery: document.getElementById('gallery')
+            cam_awb: document.getElementById('cam-awb'), cam_lens: document.getElementById('cam-lens'), cam_res: document.getElementById('cam-res'),
+            // Net
+            net_rx: document.getElementById('net-rx'), net_tx: document.getElementById('net-tx'), 
+            wifi_rssi: document.getElementById('wifi-rssi'), wifi_retry: document.getElementById('wifi-retry'), 
+            wifi_missed: document.getElementById('wifi-missed'), bt_rssi: document.getElementById('bt-rssi'), ip_addr: document.getElementById('ip-addr'),
+            // Sys
+            cpu_volts: document.getElementById('cpu-volts'), cpu_clock: document.getElementById('cpu-clock'),
+            throttle_hex: document.getElementById('throttle-hex'), sys_threads: document.getElementById('sys-threads'),
+            cpu_load: document.getElementById('cpu-load'), cpu_temp: document.getElementById('cpu-temp'), imu_temp: document.getElementById('imu-temp'),
+            ram_use: document.getElementById('ram-use'), gpu_mem: document.getElementById('gpu-mem'), disk_use: document.getElementById('disk-use'),
+            // Bars & Lists
+            bar_load: document.getElementById('bar-load'), bar_temp: document.getElementById('bar-temp'), 
+            bar_ram: document.getElementById('bar-ram'), bar_disk: document.getElementById('bar-disk'),
+            proc_list: document.getElementById('proc-list'), gallery: document.getElementById('gallery'), uptime: document.getElementById('uptime')
         };
 
-        // --- TELEMETRY ---
         const evtSource = new EventSource("/telemetry_stream");
-        evtSource.onmessage = (e) => {
-            try { updateDisplay(JSON.parse(e.data)); } catch(err) { console.error(err); }
-        };
+        evtSource.onmessage = (e) => { try { updateDisplay(JSON.parse(e.data)); } catch(err) { console.error(err); } };
         evtSource.onerror = () => { ui.conn.innerText = "RECONNECTING..."; ui.conn.style.color = "orange"; };
 
         function updateDisplay(d) {
             ui.conn.innerText = d.status || "OFFLINE";
             ui.conn.style.color = (d.status === "ONLINE") ? "#00ff41" : "red";
 
-            if (d.accel) {
-                ui.ax.innerText = d.accel.x.toFixed(2); ui.ay.innerText = d.accel.y.toFixed(2); ui.az.innerText = d.accel.z.toFixed(2);
-            }
-            if (d.quaternion) {
-                ui.qw.innerText = d.quaternion[0].toFixed(2); ui.qx.innerText = d.quaternion[1].toFixed(2);
-                ui.qy.innerText = d.quaternion[2].toFixed(2); ui.qz.innerText = d.quaternion[3].toFixed(2);
-            }
-            if (d.attitude) {
-                ui.yaw.innerText = d.attitude.yaw.toFixed(0)+"°"; ui.pitch.innerText = d.attitude.pitch.toFixed(0)+"°"; ui.roll.innerText = d.attitude.roll.toFixed(0)+"°";
-            }
+            if (d.accel) { ui.ax.innerText = d.accel.x.toFixed(2); ui.ay.innerText = d.accel.y.toFixed(2); ui.az.innerText = d.accel.z.toFixed(2); }
+            if (d.gyro) { ui.gx.innerText = d.gyro.x.toFixed(1); ui.gy.innerText = d.gyro.y.toFixed(1); ui.gz.innerText = d.gyro.z.toFixed(1); }
+            if (d.mag) { ui.mx.innerText = d.mag.x.toFixed(0); ui.my.innerText = d.mag.y.toFixed(0); ui.mz.innerText = d.mag.z.toFixed(0); }
+            if (d.quaternion) { ui.qw.innerText = d.quaternion[0].toFixed(2); ui.qx.innerText = d.quaternion[1].toFixed(2); ui.qy.innerText = d.quaternion[2].toFixed(2); ui.qz.innerText = d.quaternion[3].toFixed(2); }
+            if (d.attitude) { ui.yaw.innerText = d.attitude.yaw.toFixed(0)+"°"; ui.pitch.innerText = d.attitude.pitch.toFixed(0)+"°"; ui.roll.innerText = d.attitude.roll.toFixed(0)+"°"; }
             if (d.total_g) ui.total_g.innerText = d.total_g;
             if (d.jerk !== undefined) ui.jerk.innerText = d.jerk.toFixed(1);
 
-            if (d.cam_meta && d.cam_meta.res && d.cam_meta.res.includes('x')) {
-                ui.cam_fps.innerText = d.cam_meta.fps.toFixed(1);
-                ui.cam_exp.innerText = d.cam_meta.exp_ms.toFixed(1) + "ms";
-                ui.cam_gain.innerText = d.cam_meta.a_gain.toFixed(1) + "x";
-                ui.cam_dgain.innerText = d.cam_meta.d_gain.toFixed(1) + "x";
-                ui.cam_awb.innerText = `${d.cam_meta.awb_r.toFixed(1)} / ${d.cam_meta.awb_b.toFixed(1)}`;
-                ui.cam_lens.innerText = ["IDLE","SCAN","LOCK","FAIL"][d.cam_meta.af_state] || "IDLE";
+            if (d.cam_meta) {
+                if (d.cam_meta.res && d.cam_meta.res.includes('x')) {
+                    ui.cam_res.innerText = d.cam_meta.res; ui.cam_res.style.color = "#fff";
+                    ui.cam_fps.innerText = d.cam_meta.fps.toFixed(1);
+                    ui.cam_exp.innerText = d.cam_meta.exp_ms.toFixed(1) + "ms";
+                    ui.cam_gain.innerText = d.cam_meta.a_gain.toFixed(1) + "x";
+                    ui.cam_dgain.innerText = d.cam_meta.d_gain.toFixed(1) + "x";
+                    ui.cam_awb.innerText = `${d.cam_meta.awb_r.toFixed(1)}/${d.cam_meta.awb_b.toFixed(1)}`;
+                    ui.cam_lens.innerText = ["IDLE","SCAN","LOCK","FAIL"][d.cam_meta.af_state] || "IDLE";
+                } else {
+                    let status = d.cam_meta.res || "INIT";
+                    if(d.cam_meta.error) status = "ERR: " + d.cam_meta.error;
+                    ui.cam_res.innerText = status; ui.cam_res.style.color = "red";
+                }
             }
 
             if (d.sys) {
+                ui.cpu_volts.innerText = d.sys.cpu_volts ? d.sys.cpu_volts.toFixed(2) + " V" : "--";
+                ui.cpu_clock.innerText = d.sys.cpu_clock + " MHz";
+                ui.throttle_hex.innerText = d.sys.throttle_hex;
+                ui.sys_threads.innerText = d.sys.active_threads || 0;
+
                 ui.net_rx.innerText = (d.sys.rx_kbps||0).toFixed(1) + " KB/s";
                 ui.net_tx.innerText = (d.sys.tx_kbps||0).toFixed(1) + " KB/s";
                 ui.wifi_rssi.innerText = (d.sys.wifi_dbm||0) + " dBm";
+                ui.wifi_retry.innerText = d.sys.wifi_retry || 0;
+                ui.wifi_missed.innerText = d.sys.wifi_missed || 0;
+                ui.ip_addr.innerText = d.sys.ip_addr || "--";
                 
                 ui.cpu_load.innerText = d.sys.cpu_load + "%";
                 ui.bar_load.style.width = d.sys.cpu_load + "%";
-                
                 ui.cpu_temp.innerText = d.sys.cpu_temp + "C";
                 ui.bar_temp.style.width = Math.min((d.sys.cpu_temp/85)*100, 100) + "%";
-                if(d.sys.cpu_temp > 80) ui.bar_temp.className = "bar-fill bar-alert";
-                else ui.bar_temp.className = "bar-fill";
+                if(d.sys.cpu_temp > 80) ui.bar_temp.className = "bar-fill bar-alert"; else ui.bar_temp.className = "bar-fill";
+                ui.imu_temp.innerText = (d.sys.imu_temp || 0) + "C";
+                
+                ui.ram_use.innerText = `${d.sys.ram_used_mb}/${d.sys.ram_total_mb} MB`;
+                ui.bar_ram.style.width = (d.sys.ram_percent||0) + "%";
+                ui.gpu_mem.innerText = d.sys.gpu_mem || "0M";
+                ui.disk_use.innerText = `${d.sys.disk_used_gb}/${d.sys.disk_total_gb} GB`;
+                ui.bar_disk.style.width = (d.sys.disk_percent||0) + "%";
+                
+                ui.uptime.innerText = new Date(d.sys.uptime_script * 1000).toISOString().substr(11, 8);
 
-                // Badges
                 const flags = d.sys.throttle_flags || [];
                 document.getElementById('flag-throt').className = flags.includes('THROTTLED') ? "badge active" : "badge";
                 document.getElementById('flag-uv').className = flags.includes('UNDERVOLT') ? "badge active" : "badge";
+                
+                if (d.sys.processes) {
+                    let html = "";
+                    d.sys.processes.forEach(p => {
+                        html += `<tr><td>${p.pid}</td><td>${p.name}</td><td>${p.cpu}%</td></tr>`;
+                    });
+                    ui.proc_list.innerHTML = html;
+                }
             }
+            if(d.rssi) ui.bt_rssi.innerText = d.rssi + " dBm";
         }
 
-        // --- GALLERY ---
-        async function snap() {
-            try {
-                await fetch('/snapshot', {method:'POST'});
-                setTimeout(loadGal, 500); // Small delay to allow FS write
-            } catch(e) { console.error("Snap failed", e); }
-        }
-
+        async function snap() { try { await fetch('/snapshot', {method:'POST'}); setTimeout(loadGal, 500); } catch(e) {} }
         async function loadGal() {
             try {
                 const res = await fetch('/api/captures');
                 const files = await res.json();
-                
                 ui.gallery.innerHTML = "";
                 files.forEach(f => {
                     const img = document.createElement('img');
-                    // Add timestamp to bust cache
-                    img.src = `/captures/${f}?t=${Date.now()}`; 
+                    img.src = `/captures/${f}?t=${Date.now()}`;
                     img.className = "thumb";
                     img.onclick = () => openLightbox(img.src);
                     ui.gallery.appendChild(img);
                 });
-            } catch(e) { console.error("Gallery Load Error", e); }
+            } catch(e) {}
         }
-
-        function openLightbox(src) {
-            document.getElementById('lightbox-img').src = src;
-            document.getElementById('lightbox').style.display = 'flex';
-        }
-        function closeLightbox() {
-            document.getElementById('lightbox').style.display = 'none';
-        }
-
-        // Load gallery on start
+        function openLightbox(src) { document.getElementById('lightbox-img').src = src; document.getElementById('lightbox').style.display = 'flex'; }
+        function closeLightbox() { document.getElementById('lightbox').style.display = 'none'; }
         loadGal();
     </script>
 </body>
