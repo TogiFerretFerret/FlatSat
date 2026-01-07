@@ -5,7 +5,7 @@ import json
 import time
 import os
 import requests
-from flask import Flask, render_template, jsonify, request, Response, stream_with_context
+from flask import Flask, render_template, jsonify, request, Response, stream_with_context, send_from_directory
 
 # --- CONFIGURATION ---
 PI_BT_MAC = "D8:3A:DD:3C:12:16"  # <--- REPLACE WITH PI BLUETOOTH MAC
@@ -79,35 +79,21 @@ t.start()
 
 @app.route('/')
 def index():
-    # UPDATED: Use the local proxy route. 
-    # This works over Tailscale because the browser connects to THIS script,
-    # and THIS script talks to the Pi on the local network.
+    # Use local proxy for video
     video_url = "/proxy_video"
     return render_template('dashboard.html', video_url=video_url)
 
 @app.route('/proxy_video')
 def proxy_video():
-    """
-    Proxies the MJPEG stream from the Pi to the Browser.
-    Ground Station acts as the middleman (Tunnel).
-    """
+    """Proxies MJPEG stream from Pi to Browser (Works over Tailscale)"""
     pi_stream_url = f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/stream"
-    
     try:
-        # Establish connection to Pi (stream=True keeps connection open)
         req = requests.get(pi_stream_url, stream=True, timeout=5)
-        
-        # Generator to pass data through chunk by chunk
         def generate():
-            # 4KB chunks are efficient for MJPEG
             for chunk in req.iter_content(chunk_size=4096):
                 yield chunk
-
-        # Return the stream with the exact headers from the Pi 
-        # (Content-Type contains the crucial MJPEG boundary info)
         return Response(stream_with_context(generate()), 
                         content_type=req.headers['Content-Type'])
-                        
     except Exception as e:
         print(f"[GS] Proxy Error: {e}")
         return "Video Signal Unreachable"
@@ -119,17 +105,17 @@ def api_telemetry():
 
 @app.route('/api/capture', methods=['POST'])
 def capture_image():
-    """Downloads high-res image from Pi and saves to Laptop disk"""
+    """Downloads high-res image from Pi and OVERWRITES the previous file"""
     try:
         url = f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/snapshot"
         print(f"[GS] Requesting High Res Snap from {url}...")
         
-        # Download from Pi (Timeout increased for 4K images)
+        # Download from Pi
         resp = requests.get(url, timeout=15)
         
         if resp.status_code == 200:
-            timestamp = int(time.time())
-            filename = f"capture_{timestamp}.jpg"
+            # CHANGED: Always use the same filename to avoid spamming the disk
+            filename = "latest_snap.jpg"
             filepath = os.path.join(CAPTURE_DIR, filename)
             
             with open(filepath, 'wb') as f:
@@ -143,6 +129,23 @@ def capture_image():
     except Exception as e:
         print(f"[GS] Capture Failed: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+# --- NEW ROUTES FOR GALLERY ---
+
+@app.route('/api/captures')
+def list_captures():
+    """Returns list of captured images"""
+    try:
+        # Should just be ['latest_snap.jpg'] now
+        files = [f for f in os.listdir(CAPTURE_DIR) if f.endswith(".jpg")]
+        return jsonify(files)
+    except Exception:
+        return jsonify([])
+
+@app.route('/captures/<path:filename>')
+def serve_capture(filename):
+    """Serves the actual image file"""
+    return send_from_directory(CAPTURE_DIR, filename)
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000, threaded=True)

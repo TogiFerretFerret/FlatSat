@@ -36,10 +36,10 @@
         
         .grid-container {
             display: grid;
-            grid-template-columns: 3fr 1fr; /* Widescreen layout */
+            grid-template-columns: 3fr 1fr;
             gap: 20px;
             flex-grow: 1;
-            min-height: 0;
+            min-height: 0; /* Vital for nested scrolling */
         }
         
         .panel {
@@ -84,7 +84,7 @@
             pointer-events: none;
         }
 
-        /* Snap Button */
+        /* Controls */
         .controls {
             margin-top: 15px;
             display: flex;
@@ -110,16 +110,24 @@
         #snap-btn:hover { background: #00aa00; }
         #snap-btn:disabled { background: #444; cursor: wait; }
 
-        /* Telemetry Stats */
-        .stat-group { margin-bottom: 20px; }
+        /* Right Column Layout */
+        .right-column {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow: hidden; /* Prevent spillover */
+        }
+
+        /* Stats */
+        .stat-group { margin-bottom: 15px; }
         .stat-label { color: #888; font-size: 0.8rem; display: block; }
-        .stat-value { font-size: 1.4rem; font-weight: bold; color: #fff; }
+        .stat-value { font-size: 1.2rem; font-weight: bold; color: #fff; }
         .stat-unit { font-size: 0.8rem; color: #888; }
         
         .axis-grid {
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
-            gap: 10px;
+            gap: 5px;
             margin-top: 5px;
         }
         .axis-box {
@@ -130,17 +138,24 @@
         }
         .axis-name { color: var(--text-dim); font-size: 0.7rem; }
         
-        /* Raw Data */
-        #tel-raw {
-            background: #000;
-            color: #aaa;
-            padding: 10px;
-            font-size: 0.7rem;
-            height: 100%;
-            overflow-y: auto;
-            border: 1px solid #333;
+        /* Gallery */
+        #gallery-content {
             flex-grow: 1;
+            overflow-y: auto;
+            display: grid;
+            grid-template-columns: 1fr; /* Single column for single image */
+            gap: 10px;
+            padding-right: 5px;
         }
+        .thumb {
+            width: 100%;
+            aspect-ratio: 16/9;
+            object-fit: cover;
+            border: 1px solid #444;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .thumb:hover { transform: scale(1.02); border-color: #fff; }
 
         /* Status Indicator */
         .status-dot {
@@ -162,18 +177,18 @@
     </header>
 
     <div class="grid-container">
-        <!-- VIDEO PANEL (WIFI) -->
+        <!-- LEFT: VIDEO PANEL -->
         <div class="panel">
-            <h2><i class="fas fa-eye"></i> FULL SENSOR OPTICAL FEED (FHD)</h2>
+            <h2><i class="fas fa-eye"></i> OPTICAL FEED (4.6K)</h2>
             <div class="video-container">
                 <img id="video-feed" src="{{ video_url }}" 
                      onerror="this.style.display='none'; document.getElementById('vid-error').style.display='block'">
                 <div id="vid-error" style="display:none; color:red; text-align:center;">
                     <i class="fas fa-exclamation-triangle fa-2x"></i><br>
                     VIDEO SIGNAL LOST<br>
-                    <small>Check Wi-Fi Connection to {{ video_url }}</small>
+                    <small>Check Wi-Fi Connection</small>
                 </div>
-                <div class="overlay-text">LIVE 1920x1080</div>
+                <div class="overlay-text">LIVE FEED</div>
             </div>
             
             <div class="controls">
@@ -184,49 +199,50 @@
             </div>
         </div>
 
-        <!-- TELEMETRY PANEL (BLUETOOTH) -->
-        <div class="panel">
-            <h2><i class="fas fa-microchip"></i> AVIONICS (BT)</h2>
+        <!-- RIGHT COLUMN -->
+        <div class="right-column">
             
-            <div class="stat-group">
-                <span class="stat-label">SIGNAL STRENGTH (RSSI)</span>
-                <span id="rssi" class="stat-value">--</span> <span class="stat-unit">dBm</span>
-            </div>
+            <!-- AVIONICS PANEL -->
+            <div class="panel" style="flex-shrink: 0;">
+                <h2><i class="fas fa-microchip"></i> AVIONICS</h2>
+                
+                <div class="stat-group">
+                    <span class="stat-label">SIGNAL (RSSI)</span>
+                    <span id="rssi" class="stat-value">--</span> <span class="stat-unit">dBm</span>
+                </div>
 
-            <div class="stat-group">
-                <span class="stat-label">THERMALS</span>
-                <div class="axis-grid" style="grid-template-columns: 1fr 1fr;">
-                    <div class="axis-box">
-                        <span class="axis-name">IMU (AMBIENT)</span><br>
-                        <span id="temp-imu" class="stat-value" style="font-size:1.1rem">--</span><span class="stat-unit">°C</span>
+                <div class="stat-group">
+                    <span class="stat-label">THERMALS</span>
+                    <div class="axis-grid" style="grid-template-columns: 1fr 1fr;">
+                        <div class="axis-box">
+                            <span class="axis-name">IMU</span><br>
+                            <span id="temp-imu" class="stat-value" style="font-size:1.0rem">--</span><span class="stat-unit">°C</span>
+                        </div>
+                        <div class="axis-box">
+                            <span class="axis-name">CPU</span><br>
+                            <span id="temp-cpu" class="stat-value" style="font-size:1.0rem">--</span><span class="stat-unit">°C</span>
+                        </div>
                     </div>
-                    <div class="axis-box">
-                        <span class="axis-name">CPU (CORE)</span><br>
-                        <span id="temp-cpu" class="stat-value" style="font-size:1.1rem">--</span><span class="stat-unit">°C</span>
+                </div>
+
+                <div class="stat-group">
+                    <span class="stat-label">ACCELERATION</span>
+                    <div class="axis-grid">
+                        <div class="axis-box"><span class="axis-name">X</span><br><span id="ax">0.0</span></div>
+                        <div class="axis-box"><span class="axis-name">Y</span><br><span id="ay">0.0</span></div>
+                        <div class="axis-box"><span class="axis-name">Z</span><br><span id="az">0.0</span></div>
                     </div>
                 </div>
             </div>
 
-            <div class="stat-group">
-                <span class="stat-label">ACCELERATION</span>
-                <div class="axis-grid">
-                    <div class="axis-box"><span class="axis-name">X</span><br><span id="ax">0.0</span></div>
-                    <div class="axis-box"><span class="axis-name">Y</span><br><span id="ay">0.0</span></div>
-                    <div class="axis-box"><span class="axis-name">Z</span><br><span id="az">0.0</span></div>
+            <!-- SNAPSHOTS GALLERY -->
+            <div class="panel" style="flex-grow: 1; min-height: 200px;">
+                <h2><i class="fas fa-images"></i> LATEST SNAP</h2>
+                <div id="gallery-content">
+                    <div style="text-align:center; padding:20px; color:#555;">No snaps yet</div>
                 </div>
             </div>
 
-            <div class="stat-group">
-                <span class="stat-label">ORIENTATION (EULER)</span>
-                <div class="axis-grid">
-                    <div class="axis-box"><span class="axis-name">ROLL</span><br><span id="roll">0</span>°</div>
-                    <div class="axis-box"><span class="axis-name">PITCH</span><br><span id="pitch">0</span>°</div>
-                    <div class="axis-box"><span class="axis-name">YAW</span><br><span id="yaw">0</span>°</div>
-                </div>
-            </div>
-
-            <span class="stat-label">RAW TELEMETRY</span>
-            <pre id="tel-raw">Waiting for packets...</pre>
         </div>
     </div>
 
@@ -235,44 +251,28 @@
         const statusText = document.getElementById('status-text');
 
         function updateDisplay(data) {
-            // Raw JSON
-            document.getElementById('tel-raw').innerText = JSON.stringify(data, null, 2);
-
             // Connection Status
             if (data.status === "ONLINE") {
                 statusDot.className = 'status-dot status-online';
                 statusText.innerText = "ONLINE";
                 statusText.style.color = "#00ff41";
             } else {
-                statusDot.className = 'status-dot'; // Reset/Gray
+                statusDot.className = 'status-dot'; 
                 if(data.status) statusText.innerText = data.status;
             }
 
             // RSSI
-            if (data.rssi !== undefined) {
-                document.getElementById('rssi').innerText = data.rssi;
-            }
+            if (data.rssi !== undefined) document.getElementById('rssi').innerText = data.rssi;
 
             // Thermals
-            if (data.temp !== undefined) {
-                 document.getElementById('temp-imu').innerText = data.temp.toFixed(1);
-            }
-            if (data.cpu_temp !== undefined) {
-                 document.getElementById('temp-cpu').innerText = data.cpu_temp.toFixed(1);
-            }
+            if (data.temp !== undefined) document.getElementById('temp-imu').innerText = data.temp.toFixed(1);
+            if (data.cpu_temp !== undefined) document.getElementById('temp-cpu').innerText = data.cpu_temp.toFixed(1);
 
             // Accel
             if (data.accel) {
                 document.getElementById('ax').innerText = data.accel.x.toFixed(2);
                 document.getElementById('ay').innerText = data.accel.y.toFixed(2);
                 document.getElementById('az').innerText = data.accel.z.toFixed(2);
-            }
-
-            // Orientation
-            if (data.orientation_euler) {
-                document.getElementById('roll').innerText = data.orientation_euler.roll.toFixed(0);
-                document.getElementById('pitch').innerText = data.orientation_euler.pitch.toFixed(0);
-                document.getElementById('yaw').innerText = data.orientation_euler.yaw.toFixed(0);
             }
         }
 
@@ -290,8 +290,9 @@
                 const data = await res.json();
                 
                 if(data.status === 'success') {
-                    status.innerText = `Saved: ${data.file} (${(data.size/1024).toFixed(0)} KB)`;
+                    status.innerText = `Saved: ${data.file}`;
                     status.style.color = "#00ff41";
+                    updateGallery(); // Refresh gallery immediately
                 } else {
                     status.innerText = "Error: " + data.message;
                     status.style.color = "red";
@@ -305,6 +306,30 @@
             btn.style.background = "#008800";
         }
 
+        async function updateGallery() {
+            try {
+                const res = await fetch('/api/captures');
+                const files = await res.json();
+                const container = document.getElementById('gallery-content');
+                
+                if (files.length === 0) {
+                    container.innerHTML = '<div style="text-align:center; padding:20px; color:#555;">No snaps yet</div>';
+                    return;
+                }
+
+                container.innerHTML = '';
+                files.forEach(f => {
+                    let img = document.createElement('img');
+                    // Add timestamp to force reload cache
+                    img.src = '/captures/' + f + '?t=' + new Date().getTime();
+                    img.className = 'thumb';
+                    img.title = f;
+                    img.onclick = () => window.open(img.src, '_blank');
+                    container.appendChild(img);
+                });
+            } catch(e) {}
+        }
+
         // Poll API every 100ms
         setInterval(async () => {
             try {
@@ -313,12 +338,14 @@
                 const data = await response.json();
                 updateDisplay(data);
             } catch (e) {
-                console.error("Telemetry Poll Failed:", e);
                 statusDot.className = 'status-dot status-offline';
                 statusText.innerText = "GS DISCONNECTED";
                 statusText.style.color = "red";
             }
         }, 100);
+
+        // Initial Gallery Load
+        updateGallery();
     </script>
 </body>
 </html>
