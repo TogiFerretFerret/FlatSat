@@ -115,36 +115,33 @@ class PositionTracker:
         # --- 3. INTEGRATION (Dead Reckoning) ---
         
         # Deadband threshold (ignore noise below this)
-        THRESHOLD = 0.05
+        # Tuned to 0.2 to reject gravity leakage from slight tilt errors
+        THRESHOLD = 0.2 
         
         # Velocity Decay (Friction) prevents "infinite glide" drift
-        DECAY = 0.98 
+        MOVING_DECAY = 0.99
+        STOP_DECAY = 0.85
 
         # X Integration
         if abs(ax_world) > THRESHOLD:
             self.vel["x"] += ax_world * dt
-            self.vel["x"] *= 1.0 # No friction while moving
+            self.vel["x"] *= MOVING_DECAY
         else:
-            self.vel["x"] *= 0.9 # Rapid stop if no accel detected (ZUPT)
+            self.vel["x"] *= STOP_DECAY # Rapid stop if no accel detected (ZUPT)
 
         # Y Integration
         if abs(ay_world) > THRESHOLD:
             self.vel["y"] += ay_world * dt
-            self.vel["y"] *= 1.0
+            self.vel["y"] *= MOVING_DECAY
         else:
-            self.vel["y"] *= 0.9
+            self.vel["y"] *= STOP_DECAY
 
         # Z Integration
         if abs(az_world) > THRESHOLD:
             self.vel["z"] += az_world * dt
-            self.vel["z"] *= 1.0
+            self.vel["z"] *= MOVING_DECAY
         else:
-            self.vel["z"] *= 0.9
-
-        # General Friction to keep things sane
-        self.vel["x"] *= DECAY
-        self.vel["y"] *= DECAY
-        self.vel["z"] *= DECAY
+            self.vel["z"] *= STOP_DECAY
 
         # Pos Update
         self.pos["x"] += self.vel["x"] * dt
