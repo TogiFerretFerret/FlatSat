@@ -115,7 +115,7 @@
         <!-- MIDDLE: OPTICAL -->
         <div class="col">
             <div class="vid-container">
-                <img src="/video_feed" onerror="this.style.display='none'">
+                <img src="/proxy_video" onerror="this.style.display='none'">
                 <div class="overlay">LIVE OPTICAL FEED [1080p]</div>
             </div>
             <button class="btn" onclick="snap()">ACQUIRE HIGH-RES TARGET (4.6K)</button>
@@ -328,22 +328,35 @@
         }
 
         async function snap() {
-            await fetch('/capture'); // Using GET as per original server.py structure
+            await fetch('/api/capture', {method:'POST'});
             loadGal();
         }
 
         async function loadGal() {
-            // Placeholder: The current simple server doesn't support gallery listing 
-            // without additional changes, but keeping structure for future.
+            try {
+                let res = await fetch('/api/captures');
+                let files = await res.json();
+                let g = document.getElementById('gallery');
+                g.innerHTML = "";
+                files.forEach(f => {
+                    let i = document.createElement('img');
+                    i.src = "/captures/"+f;
+                    i.style.height = "100%";
+                    i.style.border = "1px solid #444";
+                    i.onclick = () => window.open(i.src);
+                    g.appendChild(i);
+                });
+            } catch(e) {}
         }
 
         setInterval(async () => { 
             try { 
-                let res = await fetch('/telemetry'); // Matches server.py route
+                let res = await fetch('/api/telemetry'); 
                 updateDisplay(await res.json()); 
             } catch {} 
         }, 100);
         
+        loadGal();
     </script>
 </body>
 </html>
