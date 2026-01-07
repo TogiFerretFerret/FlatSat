@@ -5,7 +5,7 @@ import json
 import time
 import os
 import requests
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, Response, stream_with_context
 
 # --- CONFIGURATION ---
 PI_BT_MAC = "D8:3A:DD:3C:12:16"  # <--- REPLACE WITH PI BLUETOOTH MAC
@@ -79,8 +79,38 @@ t.start()
 
 @app.route('/')
 def index():
-    video_url = f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/stream"
+    # UPDATED: Use the local proxy route. 
+    # This works over Tailscale because the browser connects to THIS script,
+    # and THIS script talks to the Pi on the local network.
+    video_url = "/proxy_video"
     return render_template('dashboard.html', video_url=video_url)
+
+@app.route('/proxy_video')
+def proxy_video():
+    """
+    Proxies the MJPEG stream from the Pi to the Browser.
+    Ground Station acts as the middleman (Tunnel).
+    """
+    pi_stream_url = f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/stream"
+    
+    try:
+        # Establish connection to Pi (stream=True keeps connection open)
+        req = requests.get(pi_stream_url, stream=True, timeout=5)
+        
+        # Generator to pass data through chunk by chunk
+        def generate():
+            # 4KB chunks are efficient for MJPEG
+            for chunk in req.iter_content(chunk_size=4096):
+                yield chunk
+
+        # Return the stream with the exact headers from the Pi 
+        # (Content-Type contains the crucial MJPEG boundary info)
+        return Response(stream_with_context(generate()), 
+                        content_type=req.headers['Content-Type'])
+                        
+    except Exception as e:
+        print(f"[GS] Proxy Error: {e}")
+        return "Video Signal Unreachable"
 
 @app.route('/api/telemetry')
 def api_telemetry():
@@ -115,4 +145,4 @@ def capture_image():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=5000, threaded=True)
