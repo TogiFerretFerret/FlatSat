@@ -157,6 +157,18 @@
         }
         .thumb:hover { transform: scale(1.02); border-color: #fff; }
 
+        /* Raw Data */
+        #tel-raw {
+            background: #000;
+            color: #aaa;
+            padding: 10px;
+            font-size: 0.7rem;
+            height: 150px;
+            overflow-y: auto;
+            border: 1px solid #333;
+            margin-top: 10px;
+        }
+
         /* Status Indicator */
         .status-dot {
             height: 10px;
@@ -179,7 +191,7 @@
     <div class="grid-container">
         <!-- LEFT: VIDEO PANEL -->
         <div class="panel">
-            <h2><i class="fas fa-eye"></i> OPTICAL FEED (4.6K)</h2>
+            <h2><i class="fas fa-eye"></i> OPTICAL FEED (FHD)</h2>
             <div class="video-container">
                 <img id="video-feed" src="{{ video_url }}" 
                      onerror="this.style.display='none'; document.getElementById('vid-error').style.display='block'">
@@ -233,11 +245,23 @@
                         <div class="axis-box"><span class="axis-name">Z</span><br><span id="az">0.0</span></div>
                     </div>
                 </div>
+
+                <div class="stat-group">
+                    <span class="stat-label">ORIENTATION (EULER)</span>
+                    <div class="axis-grid">
+                        <div class="axis-box"><span class="axis-name">ROLL</span><br><span id="roll">0</span>°</div>
+                        <div class="axis-box"><span class="axis-name">PITCH</span><br><span id="pitch">0</span>°</div>
+                        <div class="axis-box"><span class="axis-name">YAW</span><br><span id="yaw">0</span>°</div>
+                    </div>
+                </div>
+
+                <span class="stat-label">RAW TELEMETRY</span>
+                <pre id="tel-raw">Waiting for packets...</pre>
             </div>
 
             <!-- SNAPSHOTS GALLERY -->
             <div class="panel" style="flex-grow: 1; min-height: 200px;">
-                <h2><i class="fas fa-images"></i> LATEST SNAP</h2>
+                <h2><i class="fas fa-images"></i> LATEST SNAP (4.6K)</h2>
                 <div id="gallery-content">
                     <div style="text-align:center; padding:20px; color:#555;">No snaps yet</div>
                 </div>
@@ -251,6 +275,9 @@
         const statusText = document.getElementById('status-text');
 
         function updateDisplay(data) {
+            // Raw JSON
+            document.getElementById('tel-raw').innerText = JSON.stringify(data, null, 2);
+
             // Connection Status
             if (data.status === "ONLINE") {
                 statusDot.className = 'status-dot status-online';
@@ -273,6 +300,13 @@
                 document.getElementById('ax').innerText = data.accel.x.toFixed(2);
                 document.getElementById('ay').innerText = data.accel.y.toFixed(2);
                 document.getElementById('az').innerText = data.accel.z.toFixed(2);
+            }
+
+            // Orientation
+            if (data.orientation_euler) {
+                document.getElementById('roll').innerText = data.orientation_euler.roll.toFixed(0);
+                document.getElementById('pitch').innerText = data.orientation_euler.pitch.toFixed(0);
+                document.getElementById('yaw').innerText = data.orientation_euler.yaw.toFixed(0);
             }
         }
 
