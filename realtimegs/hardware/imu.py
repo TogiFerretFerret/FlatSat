@@ -17,6 +17,9 @@ class IMU:
             print(f"[Hardware] IMU Init Failed: {e}")
 
     def euler_to_quaternion(self, roll, pitch, yaw):
+        """
+        Convert Euler Angles (in Radians) to Quaternion [w, x, y, z]
+        """
         cr = math.cos(roll * 0.5)
         sr = math.sin(roll * 0.5)
         cp = math.cos(pitch * 0.5)
@@ -34,10 +37,10 @@ class IMU:
     def get_data(self):
         data = {
             "accel": {"x": 0, "y": 0, "z": 0},
-            "gyro":  {"x": 0, "y": 0, "z": 0}, # Added Gyro
+            "gyro":  {"x": 0, "y": 0, "z": 0},
             "mag":   {"x": 0, "y": 0, "z": 0},
             "orientation_euler": {"roll": 0, "pitch": 0, "yaw": 0},
-            "quaternion": [1, 0, 0, 0],
+            "quaternion": [1, 0, 0, 0], # Identity Quaternion
             "temp": 0,
             "status": "OFFLINE"
         }
@@ -45,15 +48,18 @@ class IMU:
         if self.ready:
             try:
                 # 1. Read Raw Sensors
-                ax, ay, az = self.accel_gyro.acceleration
-                gx, gy, gz = self.accel_gyro.gyro # Read Gyro (radians/s or deg/s depending on lib)
+                # accel is in m/s^2
+                ax, ay, az = self.accel_gyro.acceleration 
+                # gyro is in rad/s by default in CircuitPython, usually converted to deg/s
+                gx, gy, gz = self.accel_gyro.gyro 
+                # mag is in uT
                 mx, my, mz = self.mag.magnetic
                 
-                # 2. Calculate Tilt
+                # 2. Calculate Tilt (Basic Trig)
                 roll_rad = math.atan2(ay, az)
                 pitch_rad = math.atan2(-ax, math.sqrt(ay*ay + az*az))
 
-                # 3. Calculate Heading
+                # 3. Calculate Heading (Tilt Compensated)
                 mx_comp = mx * math.cos(pitch_rad) + mz * math.sin(pitch_rad)
                 my_comp = mx * math.sin(roll_rad) * math.sin(pitch_rad) + \
                           my * math.cos(roll_rad) - \
@@ -62,7 +68,8 @@ class IMU:
 
                 # 4. Pack Data
                 data["accel"] = {"x": ax, "y": ay, "z": az}
-                data["gyro"]  = {"x": gx, "y": gy, "z": gz} # Pack Gyro
+                # Convert Gyro to Degrees/sec for readability
+                data["gyro"]  = {"x": math.degrees(gx), "y": math.degrees(gy), "z": math.degrees(gz)}
                 data["mag"]   = {"x": mx, "y": my, "z": mz}
                 data["temp"]  = self.accel_gyro.temperature
                 
@@ -72,7 +79,9 @@ class IMU:
                     "yaw": math.degrees(yaw_rad)
                 }
                 
+                # 5. Generate Quaternion (Vital for Physics Engine)
                 data["quaternion"] = self.euler_to_quaternion(roll_rad, pitch_rad, yaw_rad)
+                
                 data["status"] = "ONLINE"
 
             except Exception as e:
