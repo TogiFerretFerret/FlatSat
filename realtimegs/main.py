@@ -205,22 +205,44 @@ app = Flask(__name__)
 class HybridNode:
     def __init__(self):
         self.running = True
+        
+        # --- CACHING SETUP ---
+        self.cached_rssi = 0
+        self.last_rssi_time = 0
+        self.cached_stats = {"cpu_temp": 0, "cpu_load": 0}
+        self.last_stats_time = 0
+        
         self.bt_thread = threading.Thread(target=self.run_bt_server)
         self.bt_thread.daemon = True
         self.bt_thread.start()
 
     def get_rssi(self, mac):
+        # Cache check (2.0s duration)
+        if time.time() - self.last_rssi_time < 2.0:
+            return self.cached_rssi
+            
         try:
             cmd = ["hcitool", "rssi", mac]
-            return int(subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().split(":")[1])
-        except: return 0
+            val = int(subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().split(":")[1])
+            self.cached_rssi = val
+            self.last_rssi_time = time.time()
+            return val
+        except: 
+            return self.cached_rssi
 
     def get_system_stats(self):
+        # Cache check (1.0s duration)
+        if time.time() - self.last_stats_time < 1.0:
+            return self.cached_stats
+            
         stats = {"cpu_temp": 0, "cpu_load": 0}
         try:
             with open("/sys/class/thermal/thermal_zone0/temp", "r") as f: stats["cpu_temp"] = float(f.read()) / 1000.0
             stats["cpu_load"] = os.getloadavg()[0] * 25
         except: pass
+        
+        self.cached_stats = stats
+        self.last_stats_time = time.time()
         return stats
 
     def run_bt_server(self):
