@@ -319,11 +319,22 @@ def stream():
     def generate():
         stream = io.BytesIO()
         while True:
-            with cam_lock: 
+            # Lock removed to prevent blocking high-speed stream
+            try:
                 cam.picam2.capture_file(stream, format="jpeg")
                 if 'node' in globals(): node.last_cam_activity = time.time()
-            stream.seek(0)
-            yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + stream.read() + b'\r\n')
+                
+                stream.seek(0)
+                frame = stream.read()
+                
+                # Reset buffer to prevent memory leak
+                stream.seek(0)
+                stream.truncate()
+                
+                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            except:
+                # Ignore frame drops during reconfiguration
+                pass
             time.sleep(0.03)
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
