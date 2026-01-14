@@ -32,6 +32,7 @@ cam_lock = threading.Lock()
 # --- SYSTEM MONITOR ---
 class SystemMonitor:
     def __init__(self):
+        # Initialize with full defaults to prevent UI glitches
         self.cached_stats = {
             "cpu_volts": 0, "cpu_clock": 0, "throttle_hex": "0x0", "throttle_flags": ["INIT"],
             "gpu_mem": "0M", 
@@ -43,6 +44,8 @@ class SystemMonitor:
         }
         self.last_slow_update = 0
         self.start_time = time.time()
+        
+        # Network Speed Tracking
         self.last_net_time = time.time()
         self.last_rx = 0
         self.last_tx = 0
@@ -61,10 +64,12 @@ class SystemMonitor:
 
     def update_network_stats(self):
         try:
+            # Auto-detect active interface
             iface = "wlan0"
             if not os.path.exists(f"/sys/class/net/{iface}"):
                 iface = "eth0"
             
+            # Read stats files directly
             rx_path = f"/sys/class/net/{iface}/statistics/rx_bytes"
             tx_path = f"/sys/class/net/{iface}/statistics/tx_bytes"
             
@@ -82,63 +87,88 @@ class SystemMonitor:
                     self.last_rx = rx
                     self.last_tx = tx
                     self.last_net_time = now
-        except: pass
+        except Exception as e:
+            print(f"[SysMon] Net Error: {e}")
 
     def get_quick_stats(self):
         stats = {}
+        # CPU Temp
         try:
             with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
                 stats["cpu_temp"] = round(float(f.read()) / 1000.0, 1)
-        except: stats["cpu_temp"] = 0
+        except Exception as e: 
+            # print(f"[SysMon] Temp Error: {e}")
+            stats["cpu_temp"] = 0
 
+        # CPU Load
         try:
             stats["cpu_load"] = round(os.getloadavg()[0] / os.cpu_count() * 100, 1)
-        except: stats["cpu_load"] = 0
+        except Exception as e: 
+            # print(f"[SysMon] Load Error: {e}")
+            stats["cpu_load"] = 0
         
         self.update_network_stats()
         stats.update(self.net_stats)
         return stats
 
     def get_slow_stats(self):
+        # Refresh every 2.0 seconds
         if time.time() - self.last_slow_update < 2.0:
             return self.cached_stats
         
         stats = self.cached_stats.copy()
         
+        # 1. Raspberry Pi Hardware (vcgencmd)
         try:
+            # Check for command existence to avoid FileNotFoundError crash
             res = subprocess.check_output(["vcgencmd", "measure_volts", "core"], stderr=subprocess.DEVNULL)
             stats["cpu_volts"] = float(res.decode().split("=")[1].replace("V\n", ""))
+            
             res = subprocess.check_output(["vcgencmd", "measure_clock", "arm"], stderr=subprocess.DEVNULL)
             stats["cpu_clock"] = int(int(res.decode().split("=")[1]) / 1000000)
+            
             res = subprocess.check_output(["vcgencmd", "get_throttled"], stderr=subprocess.DEVNULL)
             raw_hex = res.decode().split("=")[1].strip()
             stats["throttle_hex"] = raw_hex
             stats["throttle_flags"] = self.decode_throttle(raw_hex)
+
             res = subprocess.check_output(["vcgencmd", "get_mem", "gpu"], stderr=subprocess.DEVNULL)
             stats["gpu_mem"] = res.decode().split("=")[1].strip()
-        except: pass
+        except Exception as e:
+            # Common failure on non-Pi OS, don't spam console but log once if needed
+            # print(f"[SysMon] Vcgencmd Error: {e}")
+            pass
 
+        # 2. Memory (Reading /proc/meminfo)
         try:
             with open("/proc/meminfo", "r") as f:
                 mem = {}
                 for line in f:
                     parts = line.split()
+                    # Store as KB
                     mem[parts[0].replace(":", "")] = int(parts[1])
+                
                 total_kb = mem.get("MemTotal", 0)
+                # MemAvailable is the accurate "free" memory on Linux
                 avail_kb = mem.get("MemAvailable", 0) 
+                
                 if total_kb > 0:
                     stats["ram_total_mb"] = int(total_kb / 1024)
                     stats["ram_used_mb"] = int((total_kb - avail_kb) / 1024)
                     stats["ram_percent"] = round(((total_kb - avail_kb) / total_kb) * 100, 1)
-        except: pass
+        except Exception as e:
+            print(f"[SysMon] Mem Error: {e}")
 
+        # 3. Disk Usage (Robust shutil method)
         try:
             total, used, free = shutil.disk_usage("/")
             stats["disk_total_gb"] = round(total / (1024**3), 1)
             stats["disk_used_gb"] = round(used / (1024**3), 1)
             stats["disk_percent"] = round((used / total) * 100, 1)
-        except: pass
+        except Exception as e:
+            print(f"[SysMon] Disk Error: {e}")
 
+        # 4. Uptime & IP
         try:
             with open("/proc/uptime", "r") as f:
                 stats["uptime_sys"] = int(float(f.read().split()[0]))
@@ -150,33 +180,49 @@ class SystemMonitor:
             stats["ip_addr"] = res.decode().strip().split(" ")[0]
         except: pass
 
+        # 5. Wireless Telemetry
         try:
             if os.path.exists("/proc/net/wireless"):
                 with open("/proc/net/wireless", "r") as f:
                     lines = f.readlines()
+                    # Standard Format: "wlan0: 0000   62.  -48.  -256 ..."
                     if len(lines) > 2:
                         parts = lines[2].split()
+                        # Verify we aren't reading the wrong line
                         if ":" in parts[0]:
                             stats["wifi_link"] = int(float(parts[2]))
                             stats["wifi_dbm"] = int(float(parts[3]))
                             if len(parts) > 8: stats["wifi_retry"] = int(parts[8])
                             if len(parts) > 10: stats["wifi_missed"] = int(parts[10])
-        except: pass
+        except Exception as e:
+            # print(f"[SysMon] WiFi Error: {e}")
+            pass
 
+        # 6. Top Processes
         try:
+            # Standard ps command for Linux
             cmd = ["ps", "-Ao", "pid,comm,pcpu,pmem", "--sort=-pcpu"]
             output = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode()
             lines = output.strip().split('\n')
             procs = []
+            # Skip header, take top 5
             for line in lines[1:]:
                 parts = line.split()
                 if len(parts) >= 4:
                     name = parts[1]
+                    # Filter out observer effect
                     if name in ["ps", "sh", "head", "awk", "python", "python3"]: continue
-                    procs.append({"pid": parts[0], "name": name, "cpu": parts[2], "mem": parts[3]})
+                    procs.append({
+                        "pid": parts[0], 
+                        "name": name, 
+                        "cpu": parts[2], 
+                        "mem": parts[3]
+                    })
                     if len(procs) >= 5: break
             stats["processes"] = procs
-        except: pass
+        except Exception as e:
+            print(f"[SysMon] Process Error: {e}")
+            pass
 
         self.cached_stats = stats
         self.last_slow_update = time.time()
@@ -225,6 +271,7 @@ last_accel = {"x":0, "y":0, "z":0}
 last_imu_time = time.time()
 
 def assemble_telemetry():
+    """Generates the full telemetry packet for BT and SSE"""
     global last_accel, last_imu_time
     
     # 1. Gather Data
