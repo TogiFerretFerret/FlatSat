@@ -32,6 +32,7 @@ cam_lock = threading.Lock()
 # --- SYSTEM MONITOR ---
 class SystemMonitor:
     def __init__(self):
+        print("[SysMon] Initializing System Monitor...")
         # Initialize with full defaults to prevent UI glitches
         self.cached_stats = {
             "cpu_volts": 0, "cpu_clock": 0, "throttle_hex": "0x0", "throttle_flags": ["INIT"],
@@ -87,6 +88,9 @@ class SystemMonitor:
                     self.last_rx = rx
                     self.last_tx = tx
                     self.last_net_time = now
+            else:
+                # Verbose logging to find why it's 0
+                print(f"[SysMon] Net stats missing for {iface}")
         except Exception as e:
             print(f"[SysMon] Net Error: {e}")
 
@@ -135,8 +139,8 @@ class SystemMonitor:
             res = subprocess.check_output(["vcgencmd", "get_mem", "gpu"], stderr=subprocess.DEVNULL)
             stats["gpu_mem"] = res.decode().split("=")[1].strip()
         except Exception as e:
-            # Common failure on non-Pi OS, don't spam console but log once if needed
-            # print(f"[SysMon] Vcgencmd Error: {e}")
+            # UNCOMMENTED for debugging:
+            print(f"[SysMon] Vcgencmd Error: {e}")
             pass
 
         # 2. Memory (Reading /proc/meminfo)
@@ -194,8 +198,10 @@ class SystemMonitor:
                             stats["wifi_dbm"] = int(float(parts[3]))
                             if len(parts) > 8: stats["wifi_retry"] = int(parts[8])
                             if len(parts) > 10: stats["wifi_missed"] = int(parts[10])
+            else:
+                print("[SysMon] /proc/net/wireless missing")
         except Exception as e:
-            # print(f"[SysMon] WiFi Error: {e}")
+            print(f"[SysMon] WiFi Error: {e}")
             pass
 
         # 6. Top Processes
