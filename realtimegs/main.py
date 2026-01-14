@@ -259,6 +259,17 @@ def assemble_telemetry():
 
 app = Flask(__name__)
 
+# GLOBAL CORS HEADER
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    # Prevent buffering
+    response.headers.add('X-Accel-Buffering', 'no')
+    response.headers.add('Cache-Control', 'no-cache')
+    return response
+
 class HybridNode:
     def __init__(self):
         self.running = True
@@ -333,7 +344,6 @@ def stream():
                 
                 yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
             except:
-                # Ignore frame drops during reconfiguration
                 pass
             time.sleep(0.03)
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
@@ -343,8 +353,12 @@ def telemetry_stream():
     """DIRECT WiFi Stream (Restored for reliability)"""
     def event_stream():
         while True:
-            data = assemble_telemetry()
-            yield f"data: {json.dumps(data)}\n\n"
+            try:
+                data = assemble_telemetry()
+                yield f"data: {json.dumps(data)}\n\n"
+            except Exception as e:
+                print(f"[SSE] Stream Error: {e}")
+                
             time.sleep(0.25)
     return Response(event_stream(), mimetype='text/event-stream')
 

@@ -106,14 +106,25 @@ def proxy_video():
 def proxy_snapshot():
     """Trigger snapshot on Pi, save locally on GS"""
     try:
-        resp = requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/snapshot", timeout=15)
+        # 1. Extract params from Dashboard request (e.g. ?exposure=1.5)
+        exposure = request.args.get('exposure', 0.0)
+        
+        # 2. Forward to Pi with params
+        # Timeout increased to 20s to allow for long exposures + processing
+        resp = requests.post(
+            f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/snapshot", 
+            params={'exposure': exposure},
+            timeout=20 
+        )
+        
         if resp.status_code == 200:
             fn = f"snap_{int(time.time())}.jpg"
             full_path = os.path.join(CAPTURE_DIR, fn)
             with open(full_path, 'wb') as f:
                 f.write(resp.content)
-            print(f"[GS] Saved {fn}")
+            print(f"[GS] Saved {fn} (Exp: {exposure}s)")
             return jsonify({"status": "success", "file": fn})
+            
     except Exception as e:
         print(f"[GS] Snapshot Failed: {e}")
     return jsonify({"status": "error"}), 500
