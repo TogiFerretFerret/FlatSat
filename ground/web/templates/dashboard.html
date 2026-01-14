@@ -209,7 +209,10 @@
             </div>
             <div class="panel">
                 <h2>Top Processes</h2>
-                <table><thead><tr><th>PID</th><th>NAME</th><th>CPU</th></tr></thead><tbody id="proc-list"></tbody></table>
+                <table>
+                    <thead><tr><th>PID</th><th>NAME</th><th>CPU</th><th>MEM</th></tr></thead>
+                    <tbody id="proc-list"></tbody>
+                </table>
             </div>
             <div class="panel" style="margin-top: 10px;">
                <div class="data-row"><span>UPTIME</span><span class="data-val" id="uptime">0s</span></div>
@@ -348,12 +351,14 @@
                 document.getElementById('flag-throt').className = flags.includes('THROTTLED') ? "badge active" : "badge";
                 document.getElementById('flag-uv').className = flags.includes('UNDERVOLT') ? "badge active" : "badge";
                 
-                if (d.sys.processes) {
+                if (d.sys.processes && d.sys.processes.length > 0) {
                     let html = "";
                     d.sys.processes.forEach(p => {
-                        html += `<tr><td>${p.pid}</td><td>${p.name}</td><td>${p.cpu}%</td></tr>`;
+                        html += `<tr><td>${p.pid}</td><td>${p.name}</td><td>${p.cpu}%</td><td>${p.mem}%</td></tr>`;
                     });
                     ui.proc_list.innerHTML = html;
+                } else {
+                    ui.proc_list.innerHTML = "<tr><td colspan='4' style='text-align:center; color:#555'>-- NO DATA --</td></tr>";
                 }
             }
             if(d.rssi) ui.bt_rssi.innerText = d.rssi + " dBm";
