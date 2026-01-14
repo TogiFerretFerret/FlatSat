@@ -101,14 +101,14 @@ class SystemMonitor:
             with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
                 stats["cpu_temp"] = round(float(f.read()) / 1000.0, 1)
         except Exception as e: 
-            # print(f"[SysMon] Temp Error: {e}")
+            print(f"[SysMon] Temp Error: {e}")
             stats["cpu_temp"] = 0
 
         # CPU Load
         try:
             stats["cpu_load"] = round(os.getloadavg()[0] / os.cpu_count() * 100, 1)
         except Exception as e: 
-            # print(f"[SysMon] Load Error: {e}")
+            print(f"[SysMon] Load Error: {e}")
             stats["cpu_load"] = 0
         
         self.update_network_stats()
@@ -304,6 +304,7 @@ def assemble_telemetry():
         last_imu_time = now
 
     # 2. System Data
+    print("getting faststats")
     sys_data = sys_mon.get_quick_stats()
     sys_data.update(sys_mon.get_slow_stats())
     sys_data["active_threads"] = threading.active_count()
