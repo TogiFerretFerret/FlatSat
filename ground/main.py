@@ -20,6 +20,15 @@ if not os.path.exists(CAPTURE_DIR): os.makedirs(CAPTURE_DIR)
 # Initialize Flask with specific folder paths if needed, or defaults
 app = Flask(__name__, template_folder="web/templates", static_folder="web/static")
 
+# --- FLASK CONFIG ---
+# CRITICAL: Disable buffering to ensure real-time telemetry flow
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Cache-Control', 'no-cache')
+    response.headers.add('X-Accel-Buffering', 'no')
+    return response
+
 # Global State
 telemetry_data = {"status": "CONNECTING...", "sys": {}, "cam_meta": {}}
 bt_sock = None
