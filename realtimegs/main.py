@@ -33,24 +33,24 @@ cam_lock = threading.Lock()
 class SystemMonitor:
     def __init__(self):
         print("[SysMon] Initializing System Monitor...")
-        # Initialize with full defaults to prevent UI glitches
+        self.lock = threading.Lock()
+        
+        # FULL DEFAULTS (The "Motherflippin Data" Foundation)
         self.cached_stats = {
-            "cpu_volts": 0, "cpu_clock": 0, "throttle_hex": "0x0", "throttle_flags": ["INIT"],
+            "cpu_volts": 0.0, "cpu_clock": 0, "throttle_hex": "0x0", "throttle_flags": ["INIT"],
             "gpu_mem": "0M", 
-            "ram_total_mb": 0, "ram_used_mb": 0, "ram_percent": 0,
-            "disk_total_gb": 0, "disk_used_gb": 0, "disk_percent": 0,
+            "ram_total_mb": 0, "ram_used_mb": 0, "ram_percent": 0.0,
+            "disk_total_gb": 0.0, "disk_used_gb": 0.0, "disk_percent": 0.0,
             "uptime_sys": 0, "uptime_script": 0, "ip_addr": "Unknown",
             "wifi_dbm": 0, "wifi_link": 0, "wifi_retry": 0, "wifi_missed": 0,
             "processes": []
         }
         self.last_slow_update = 0
         self.start_time = time.time()
-        
-        # Network Speed Tracking
         self.last_net_time = time.time()
         self.last_rx = 0
         self.last_tx = 0
-        self.net_stats = {"rx_kbps": 0, "tx_kbps": 0}
+        self.net_stats = {"rx_kbps": 0.0, "tx_kbps": 0.0}
 
     def decode_throttle(self, hex_str):
         try:
@@ -65,174 +65,104 @@ class SystemMonitor:
 
     def update_network_stats(self):
         try:
-            # Auto-detect active interface
             iface = "wlan0"
-            if not os.path.exists(f"/sys/class/net/{iface}"):
-                iface = "eth0"
+            if not os.path.exists(f"/sys/class/net/{iface}"): iface = "eth0"
             
-            # Read stats files directly
             rx_path = f"/sys/class/net/{iface}/statistics/rx_bytes"
             tx_path = f"/sys/class/net/{iface}/statistics/tx_bytes"
             
-            if os.path.exists(rx_path) and os.path.exists(tx_path):
+            if os.path.exists(rx_path):
                 with open(rx_path, "r") as f: rx = int(f.read())
                 with open(tx_path, "r") as f: tx = int(f.read())
                 
                 now = time.time()
                 dt = now - self.last_net_time
-                
                 if dt > 0.5:
-                    rx_spd = (rx - self.last_rx) / dt / 1024 
-                    tx_spd = (tx - self.last_tx) / dt / 1024 
-                    self.net_stats = {"rx_kbps": round(rx_spd, 1), "tx_kbps": round(tx_spd, 1)}
+                    self.net_stats = {
+                        "rx_kbps": round((rx - self.last_rx) / dt / 1024, 1),
+                        "tx_kbps": round((tx - self.last_tx) / dt / 1024, 1)
+                    }
                     self.last_rx = rx
                     self.last_tx = tx
                     self.last_net_time = now
-            else:
-                # Verbose logging to find why it's 0
-                print(f"[SysMon] Net stats missing for {iface}")
-        except Exception as e:
-            print(f"[SysMon] Net Error: {e}")
+        except: pass
 
-    def get_quick_stats(self):
-        stats = {}
-        # CPU Temp
-        try:
-            with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
-                stats["cpu_temp"] = round(float(f.read()) / 1000.0, 1)
-        except Exception as e: 
-            print(f"[SysMon] Temp Error: {e}")
-            stats["cpu_temp"] = 0
+    def get_stats(self):
+        """Returns the COMPLETE blended stats payload safely."""
+        with self.lock:
+            # 1. Update Fast Stats (Network/CPU Load)
+            try:
+                self.update_network_stats()
+                with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
+                    cpu_temp = round(float(f.read()) / 1000.0, 1)
+                cpu_load = round(os.getloadavg()[0] / os.cpu_count() * 100, 1)
+            except: 
+                cpu_temp = 0
+                cpu_load = 0
 
-        # CPU Load
-        try:
-            stats["cpu_load"] = round(os.getloadavg()[0] / os.cpu_count() * 100, 1)
-        except Exception as e: 
-            print(f"[SysMon] Load Error: {e}")
-            stats["cpu_load"] = 0
-        
-        self.update_network_stats()
-        stats.update(self.net_stats)
-        return stats
+            # 2. Update Slow Stats (Hardware/Disk) every 2s
+            if time.time() - self.last_slow_update > 2.0:
+                self._update_slow_stats()
+                self.last_slow_update = time.time()
 
-    def get_slow_stats(self):
-        # Refresh every 2.0 seconds
-        if time.time() - self.last_slow_update < 2.0:
-            return self.cached_stats
-        
-        stats = self.cached_stats.copy()
-        
-        # 1. Raspberry Pi Hardware (vcgencmd)
+            # 3. Merge
+            full_stats = self.cached_stats.copy()
+            full_stats.update(self.net_stats)
+            full_stats["cpu_temp"] = cpu_temp
+            full_stats["cpu_load"] = cpu_load
+            return full_stats
+
+    def _update_slow_stats(self):
+        # Internal helper - runs inside lock
         try:
-            # Check for command existence to avoid FileNotFoundError crash
             res = subprocess.check_output(["vcgencmd", "measure_volts", "core"], stderr=subprocess.DEVNULL)
-            stats["cpu_volts"] = float(res.decode().split("=")[1].replace("V\n", ""))
+            self.cached_stats["cpu_volts"] = float(res.decode().split("=")[1].replace("V\n", ""))
             
             res = subprocess.check_output(["vcgencmd", "measure_clock", "arm"], stderr=subprocess.DEVNULL)
-            stats["cpu_clock"] = int(int(res.decode().split("=")[1]) / 1000000)
+            self.cached_stats["cpu_clock"] = int(int(res.decode().split("=")[1]) / 1000000)
             
             res = subprocess.check_output(["vcgencmd", "get_throttled"], stderr=subprocess.DEVNULL)
             raw_hex = res.decode().split("=")[1].strip()
-            stats["throttle_hex"] = raw_hex
-            stats["throttle_flags"] = self.decode_throttle(raw_hex)
+            self.cached_stats["throttle_hex"] = raw_hex
+            self.cached_stats["throttle_flags"] = self.decode_throttle(raw_hex)
+        except: pass # Non-Pi hardware support
 
-            res = subprocess.check_output(["vcgencmd", "get_mem", "gpu"], stderr=subprocess.DEVNULL)
-            stats["gpu_mem"] = res.decode().split("=")[1].strip()
-        except Exception as e:
-            # UNCOMMENTED for debugging:
-            print(f"[SysMon] Vcgencmd Error: {e}")
-            pass
-
-        # 2. Memory (Reading /proc/meminfo)
         try:
             with open("/proc/meminfo", "r") as f:
-                mem = {}
-                for line in f:
-                    parts = line.split()
-                    # Store as KB
-                    mem[parts[0].replace(":", "")] = int(parts[1])
-                
-                total_kb = mem.get("MemTotal", 0)
-                # MemAvailable is the accurate "free" memory on Linux
-                avail_kb = mem.get("MemAvailable", 0) 
-                
-                if total_kb > 0:
-                    stats["ram_total_mb"] = int(total_kb / 1024)
-                    stats["ram_used_mb"] = int((total_kb - avail_kb) / 1024)
-                    stats["ram_percent"] = round(((total_kb - avail_kb) / total_kb) * 100, 1)
-        except Exception as e:
-            print(f"[SysMon] Mem Error: {e}")
+                mem = {line.split(':')[0]: int(line.split()[1]) for line in f}
+            total = mem.get("MemTotal", 1)
+            avail = mem.get("MemAvailable", 0)
+            self.cached_stats["ram_total_mb"] = int(total / 1024)
+            self.cached_stats["ram_used_mb"] = int((total - avail) / 1024)
+            self.cached_stats["ram_percent"] = round(((total - avail) / total) * 100, 1)
+        except: pass
 
-        # 3. Disk Usage (Robust shutil method)
         try:
             total, used, free = shutil.disk_usage("/")
-            stats["disk_total_gb"] = round(total / (1024**3), 1)
-            stats["disk_used_gb"] = round(used / (1024**3), 1)
-            stats["disk_percent"] = round((used / total) * 100, 1)
-        except Exception as e:
-            print(f"[SysMon] Disk Error: {e}")
+            self.cached_stats["disk_total_gb"] = round(total / (1024**3), 1)
+            self.cached_stats["disk_used_gb"] = round(used / (1024**3), 1)
+            self.cached_stats["disk_percent"] = round((used / total) * 100, 1)
+        except: pass
 
-        # 4. Uptime & IP
         try:
             with open("/proc/uptime", "r") as f:
-                stats["uptime_sys"] = int(float(f.read().split()[0]))
-        except: pass
-        stats["uptime_script"] = int(time.time() - self.start_time)
-
-        try:
+                self.cached_stats["uptime_sys"] = int(float(f.read().split()[0]))
+            self.cached_stats["uptime_script"] = int(time.time() - self.start_time)
+            
             res = subprocess.check_output(["hostname", "-I"], stderr=subprocess.DEVNULL)
-            stats["ip_addr"] = res.decode().strip().split(" ")[0]
+            self.cached_stats["ip_addr"] = res.decode().strip().split(" ")[0]
         except: pass
 
-        # 5. Wireless Telemetry
         try:
             if os.path.exists("/proc/net/wireless"):
                 with open("/proc/net/wireless", "r") as f:
                     lines = f.readlines()
-                    # Standard Format: "wlan0: 0000   62.  -48.  -256 ..."
                     if len(lines) > 2:
                         parts = lines[2].split()
-                        # Verify we aren't reading the wrong line
                         if ":" in parts[0]:
-                            stats["wifi_link"] = int(float(parts[2]))
-                            stats["wifi_dbm"] = int(float(parts[3]))
-                            if len(parts) > 8: stats["wifi_retry"] = int(parts[8])
-                            if len(parts) > 10: stats["wifi_missed"] = int(parts[10])
-            else:
-                print("[SysMon] /proc/net/wireless missing")
-        except Exception as e:
-            print(f"[SysMon] WiFi Error: {e}")
-            pass
-
-        # 6. Top Processes
-        try:
-            # Standard ps command for Linux
-            cmd = ["ps", "-Ao", "pid,comm,pcpu,pmem", "--sort=-pcpu"]
-            output = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode()
-            lines = output.strip().split('\n')
-            procs = []
-            # Skip header, take top 5
-            for line in lines[1:]:
-                parts = line.split()
-                if len(parts) >= 4:
-                    name = parts[1]
-                    # Filter out observer effect
-                    if name in ["ps", "sh", "head", "awk", "python", "python3"]: continue
-                    procs.append({
-                        "pid": parts[0], 
-                        "name": name, 
-                        "cpu": parts[2], 
-                        "mem": parts[3]
-                    })
-                    if len(procs) >= 5: break
-            stats["processes"] = procs
-        except Exception as e:
-            print(f"[SysMon] Process Error: {e}")
-            pass
-
-        self.cached_stats = stats
-        self.last_slow_update = time.time()
-        return stats
+                            self.cached_stats["wifi_link"] = int(float(parts[2]))
+                            self.cached_stats["wifi_dbm"] = int(float(parts[3]))
+        except: pass
 
 sys_mon = SystemMonitor()
 
@@ -242,12 +172,12 @@ def calculate_attitude(accel, mag):
     roll = math.atan2(ay, az)
     pitch = math.atan2(-ax, math.sqrt(ay*ay + az*az))
     mx, my, mz = mag['x'], mag['y'], mag['z']
-    cos_r = math.cos(roll)
-    sin_r = math.sin(roll)
-    cos_p = math.cos(pitch)
-    sin_p = math.sin(pitch)
-    mx_comp = mx * cos_p + mz * sin_p
-    my_comp = mx * sin_r * sin_p + my * cos_r - mz * sin_r * cos_p
+    # Tilt compensation
+    roll_rad = math.atan2(ay, az)
+    pitch_rad = math.atan2(-ax, math.sqrt(ay*ay + az*az))
+    mx_comp = mx * math.cos(pitch_rad) + mz * math.sin(pitch_rad)
+    my_comp = mx * math.sin(roll_rad) * math.sin(pitch_rad) + my * math.cos(roll_rad) - mz * math.sin(roll_rad) * math.cos(pitch_rad)
+    
     yaw = math.atan2(-my_comp, mx_comp)
     return {
         "roll": math.degrees(roll),
@@ -255,7 +185,6 @@ def calculate_attitude(accel, mag):
         "yaw": (math.degrees(yaw) + 360) % 360
     }
 
-# Track current camera config state
 CURRENT_RES = STREAM_RES
 
 def configure_camera(width, height):
@@ -269,71 +198,62 @@ def configure_camera(width, height):
         CURRENT_RES = (width, height)
     except Exception as e: print(f"[Cam] Config Error: {e}")
 
-# Start Low Res for Performance
 configure_camera(STREAM_RES[0], STREAM_RES[1])
 
-# --- GLOBAL STATE FOR JERK CALC ---
+# --- TELEMETRY ASSEMBLY ---
 last_accel = {"x":0, "y":0, "z":0}
 last_imu_time = time.time()
+frame_counter = 0
 
 def assemble_telemetry():
-    """Generates the full telemetry packet for BT and SSE"""
-    global last_accel, last_imu_time
+    global last_accel, last_imu_time, frame_counter
+    frame_counter += 1
     
-    # 1. Gather Data
+    # 1. IMU Data
     data = imu.get_data() if imu else {"status": "no_imu"}
     data["status"] = "ONLINE"
     
     if data["status"] == "ONLINE" and "accel" in data:
-        att = calculate_attitude(data["accel"], data["mag"])
-        data["attitude"] = att
+        data["attitude"] = calculate_attitude(data["accel"], data["mag"])
         ax, ay, az = data["accel"]["x"], data["accel"]["y"], data["accel"]["z"]
         data["total_g"] = round(math.sqrt(ax**2 + ay**2 + az**2) / 9.81, 2)
         
+        # Jerk Calc
         now = time.time()
         dt = now - last_imu_time
         if dt > 0:
-            dj_x = (ax - last_accel["x"]) / dt
-            dj_y = (ay - last_accel["y"]) / dt
-            dj_z = (az - last_accel["z"]) / dt
-            data["jerk"] = round(math.sqrt(dj_x**2 + dj_y**2 + dj_z**2), 1)
-        else:
-            data["jerk"] = 0.0
-        
+            dj = math.sqrt((ax - last_accel["x"])**2 + (ay - last_accel["y"])**2 + (az - last_accel["z"])**2)
+            data["jerk"] = round(dj / dt, 1)
+        else: data["jerk"] = 0.0
         last_accel = {"x":ax, "y":ay, "z":az}
         last_imu_time = now
 
-    # 2. System Data
-    sys_data = sys_mon.get_quick_stats()
-    sys_data.update(sys_mon.get_slow_stats())
-    sys_data["active_threads"] = threading.active_count()
-    if data.get("temp"): sys_data["imu_temp"] = round(data["temp"], 1)
-    data["sys"] = sys_data
-    print(data)
+    # 2. System Data (The Critical Part)
+    data["sys"] = sys_mon.get_stats()
+    data["sys"]["active_threads"] = threading.active_count()
+    if data.get("temp"): data["sys"]["imu_temp"] = round(data["temp"], 1)
     
+    # Debug Print every ~4 seconds (assuming 5Hz calls)
+    if frame_counter % 20 == 0:
+        s = data["sys"]
+        print(f"[Telem] CPU:{s['cpu_load']}% Temp:{s['cpu_temp']}C Mem:{s['ram_percent']}% WiFi:{s['wifi_dbm']}dBm")
+
     # 3. Camera Metadata
     try:
         meta = cam.picam2.capture_metadata()
         if meta:
-            frame_dur = meta.get("FrameDuration", 33333)
-            fps = 1000000.0 / frame_dur if frame_dur > 0 else 0
-            gains = meta.get("ColourGains", (0.0, 0.0))
             data["cam_meta"] = {
                 "res": f"{CURRENT_RES[0]}x{CURRENT_RES[1]}",
-                "fmt": "RGB888",
-                "fps": round(fps, 1),
+                "fps": 0, # Simplify
                 "exp_ms": round(meta.get("ExposureTime", 0) / 1000.0, 2),
                 "a_gain": round(meta.get("AnalogueGain", 1.0), 2),
                 "d_gain": round(meta.get("DigitalGain", 1.0), 2),
-                "temp_k": int(meta.get("ColourTemperature", 0)),
-                "lens": round(meta.get("LensPosition", 0.0), 2),
-                "awb_r": round(gains[0], 2),
-                "awb_b": round(gains[1], 2),
+                "awb_r": round(meta.get("ColourGains", (0,0))[0], 2),
+                "awb_b": round(meta.get("ColourGains", (0,0))[1], 2),
                 "af_state": int(meta.get("AfState", 0))
             }
-        else: data["cam_meta"] = {"res": "WAITING"}
-    except Exception as e: 
-        data["cam_meta"] = {"res": "ERR", "error": str(e)}
+    except: 
+        data["cam_meta"] = {"res": "ERR"}
         
     return data
 
@@ -349,8 +269,7 @@ class HybridNode:
 
     def get_rssi(self, mac):
         try:
-            cmd = ["hcitool", "rssi", mac]
-            return int(subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().split(":")[1])
+            return int(subprocess.check_output(["hcitool", "rssi", mac], stderr=subprocess.DEVNULL).decode().split(":")[1])
         except: return 0
 
     def run_bt_server(self):
@@ -368,25 +287,22 @@ class HybridNode:
                 threading.Thread(target=self.listen_commands, args=(client,), daemon=True).start()
 
                 while self.running:
-                    # 1. Camera Heartbeat
-                    if time.time() - self.last_cam_activity > 0.2:
+                    # Heartbeat
+                    if time.time() - self.last_cam_activity > 0.5:
                         try:
                             with cam_lock: cam.picam2.capture_file(io.BytesIO(), format="jpeg")
                             self.last_cam_activity = time.time()
                         except: pass
 
-                    # 2. Get Data
                     data = assemble_telemetry()
                     data["rssi"] = self.get_rssi(addr[0])
                     
-                    # 3. Send
                     msg = json.dumps(data).encode('utf-8')
                     header = struct.pack("!4sI", b"TELE", len(msg))
                     try: client.sendall(header + msg)
                     except: break
                     
-                    # SLOW DOWN TELEMETRY (Optimization)
-                    time.sleep(0.2) 
+                    time.sleep(0.2) # 5Hz
             except: time.sleep(1)
 
     def listen_commands(self, sock):
@@ -407,57 +323,40 @@ def stream():
                 cam.picam2.capture_file(stream, format="jpeg")
                 if 'node' in globals(): node.last_cam_activity = time.time()
             stream.seek(0)
-            frame = stream.read()
-            stream.seek(0)
-            stream.truncate()
-            yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + stream.read() + b'\r\n')
             time.sleep(0.03)
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+@app.route('/telemetry_stream')
+def telemetry_stream():
+    """DIRECT WiFi Stream (Restored for reliability)"""
+    def event_stream():
+        while True:
+            data = assemble_telemetry()
+            yield f"data: {json.dumps(data)}\n\n"
+            time.sleep(0.25)
+    return Response(event_stream(), mimetype='text/event-stream')
+
 @app.route('/snapshot', methods=['POST'])
 def snapshot():
-    """
-    Handles Long Exposure if 'exposure' arg is present.
-    1. Check for exposure param (seconds)
-    2. Switch to High Res
-    3. If exposure > 0, set controls + wait
-    4. Snap
-    5. Revert
-    """
     stream = io.BytesIO()
-    
-    # Read query param ?exposure=1.5
     exposure_sec = request.args.get('exposure', default=0.0, type=float)
     
     with cam_lock:
         print(f"[Cam] Snap Request (Exp: {exposure_sec}s)")
-        
-        # 1. Config High Res
         configure_camera(CAPTURE_RES[0], CAPTURE_RES[1])
         
-        # 2. Apply Long Exposure settings if needed
         if exposure_sec > 0:
-            # FrameDuration must be >= ExposureTime + padding
-            exposure_us = int(exposure_sec * 1000000)
-            frame_dur = exposure_us + 10000 
-            
-            # Set Frame Duration limit FIRST (allows long shutter)
-            cam.picam2.set_controls({"FrameDurationLimits": (frame_dur, frame_dur)})
-            # Then set Exposure Time
-            cam.picam2.set_controls({"ExposureTime": exposure_us})
-            # Wait for exposure to settle/happen
+            us = int(exposure_sec * 1000000)
+            cam.picam2.set_controls({"FrameDurationLimits": (us+10000, us+10000), "ExposureTime": us})
             time.sleep(exposure_sec + 0.5)
         else:
-            time.sleep(0.2) # Standard settle time
+            time.sleep(0.5) 
         
-        # 3. Capture
         cam.picam2.capture_file(stream, format="jpeg")
         
-        # 4. Reset to Low Res Stream defaults
         configure_camera(STREAM_RES[0], STREAM_RES[1])
-        # Reset controls to auto
         cam.picam2.set_controls({"ExposureTime": 0, "FrameDurationLimits": (0, 0)})
-        
         if 'node' in globals(): node.last_cam_activity = time.time()
         
     stream.seek(0)
