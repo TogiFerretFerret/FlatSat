@@ -100,7 +100,6 @@ class SystemMonitor:
         try:
             with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
                 stats["cpu_temp"] = round(float(f.read()) / 1000.0, 1)
-            print(stats)
         except Exception as e: 
             print(f"[SysMon] Temp Error: {e}")
             stats["cpu_temp"] = 0
@@ -306,11 +305,11 @@ def assemble_telemetry():
 
     # 2. System Data
     sys_data = sys_mon.get_quick_stats()
-    print(sys_data)
     sys_data.update(sys_mon.get_slow_stats())
     sys_data["active_threads"] = threading.active_count()
     if data.get("temp"): sys_data["imu_temp"] = round(data["temp"], 1)
     data["sys"] = sys_data
+    print(data)
     
     # 3. Camera Metadata
     try:
