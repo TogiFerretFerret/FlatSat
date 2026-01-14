@@ -55,8 +55,10 @@
         .badge { display: inline-block; padding: 1px 4px; border-radius: 2px; font-size: 0.65em; margin-right: 2px; background: #222; color: #888; }
         .badge.active { background: var(--alert); color: #fff; font-weight: bold; }
 
-        .btn { background: var(--panel); border: 1px solid var(--text); color: var(--text); width: 100%; padding: 8px; cursor: pointer; font-weight: bold; margin-top: 2px; font-size: 0.8em; }
+        .btn { background: var(--panel); border: 1px solid var(--text); color: var(--text); width: 100%; padding: 8px; cursor: pointer; font-weight: bold; margin-top: 2px; font-size: 0.8em; user-select: none; }
         .btn:hover { background: var(--dim); color: #fff; }
+        .btn:active { background: var(--text); color: #000; }
+        .btn-hold.active { background: #ffcc00; color: #000; border-color: #ffcc00; }
         
         table { width: 100%; border-collapse: collapse; font-size: 0.7em; }
         th { text-align: left; color: #888; border-bottom: 1px solid #333; }
@@ -129,7 +131,16 @@
                 <img class="live-feed" src="/stream" alt="NO SIGNAL" onerror="console.log('Stream Error')">
                 <div class="overlay">LIVE OPTICAL FEED [720p]</div>
             </div>
-            <button class="btn" onclick="snap()">ACQUIRE HIGH-RES TARGET (5MP)</button>
+            <!-- CAPTURE CONTROLS -->
+            <div style="display: flex; gap: 5px; margin-top: 2px;">
+                <button class="btn" style="flex: 2;" onclick="snap(0)">ACQUIRE (5MP)</button>
+                <button id="btn-long-exp" class="btn btn-hold" style="flex: 1; border-color: #ffcc00; color: #ffcc00;" 
+                    onmousedown="startLongExp()" onmouseup="stopLongExp()" onmouseleave="stopLongExp()"
+                    ontouchstart="startLongExp()" ontouchend="stopLongExp()">
+                    LONG EXP (HOLD)
+                </button>
+            </div>
+            
             <div class="panel gallery-panel">
                 <h2>Mission Gallery</h2>
                 <div id="gallery" class="gallery-strip"></div>
@@ -338,7 +349,42 @@
             if(d.rssi) ui.bt_rssi.innerText = d.rssi + " dBm";
         }
 
-        async function snap() { try { await fetch('/snapshot', {method:'POST'}); setTimeout(loadGal, 500); } catch(e) {} }
+        // --- LONG EXPOSURE LOGIC ---
+        let longExpStart = 0;
+        const btnLong = document.getElementById('btn-long-exp');
+
+        function startLongExp() {
+            longExpStart = Date.now();
+            btnLong.classList.add('active');
+            btnLong.innerText = "EXPOSING...";
+        }
+
+        function stopLongExp() {
+            if (longExpStart === 0) return;
+            
+            const duration = (Date.now() - longExpStart) / 1000;
+            longExpStart = 0;
+            btnLong.classList.remove('active');
+            btnLong.innerText = "LONG EXP (HOLD)";
+            
+            // Only trigger if held for > 0.3s to avoid accidental clicks
+            if (duration > 0.3) {
+                console.log(`Taking Long Exposure: ${duration.toFixed(2)}s`);
+                snap(duration);
+            }
+        }
+
+        async function snap(exposure=0) { 
+            try { 
+                let url = '/snapshot';
+                // Add exposure param if > 0
+                if (exposure > 0) url += `?exposure=${exposure.toFixed(2)}`;
+                
+                await fetch(url, {method:'POST'}); 
+                setTimeout(loadGal, 500); 
+            } catch(e) {} 
+        }
+        
         async function loadGal() {
             try {
                 const res = await fetch('/api/captures');

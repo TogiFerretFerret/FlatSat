@@ -9,7 +9,7 @@ import sys
 import subprocess
 import math
 import shutil
-from flask import Flask, Response, send_file
+from flask import Flask, Response, send_file, request
 
 # --- HARDWARE IMPORTS ---
 try:
@@ -332,7 +332,6 @@ class HybridNode:
                     except: break
                     
                     # SLOW DOWN TELEMETRY (Optimization)
-                    # 5Hz is plenty for sensors, saves CPU for Video
                     time.sleep(0.2) 
             except: time.sleep(1)
 
@@ -364,21 +363,46 @@ def stream():
 @app.route('/snapshot', methods=['POST'])
 def snapshot():
     """
-    1. Switch to High Res
-    2. Snap
-    3. Switch back to Stream Res (Low Lag)
+    Handles Long Exposure if 'exposure' arg is present.
+    1. Check for exposure param (seconds)
+    2. Switch to High Res
+    3. If exposure > 0, set controls + wait
+    4. Snap
+    5. Revert
     """
     stream = io.BytesIO()
+    
+    # Read query param ?exposure=1.5
+    exposure_sec = request.args.get('exposure', default=0.0, type=float)
+    
     with cam_lock:
-        print("[Cam] Switching to High Res...")
-        configure_camera(CAPTURE_RES[0], CAPTURE_RES[1])
-        time.sleep(0.2) # Allow sensor to settle
+        print(f"[Cam] Snap Request (Exp: {exposure_sec}s)")
         
-        print("[Cam] Capturing...")
+        # 1. Config High Res
+        configure_camera(CAPTURE_RES[0], CAPTURE_RES[1])
+        
+        # 2. Apply Long Exposure settings if needed
+        if exposure_sec > 0:
+            # FrameDuration must be >= ExposureTime + padding
+            exposure_us = int(exposure_sec * 1000000)
+            frame_dur = exposure_us + 10000 
+            
+            # Set Frame Duration limit FIRST (allows long shutter)
+            cam.picam2.set_controls({"FrameDurationLimits": (frame_dur, frame_dur)})
+            # Then set Exposure Time
+            cam.picam2.set_controls({"ExposureTime": exposure_us})
+            # Wait for exposure to settle/happen
+            time.sleep(exposure_sec + 0.5)
+        else:
+            time.sleep(0.2) # Standard settle time
+        
+        # 3. Capture
         cam.picam2.capture_file(stream, format="jpeg")
         
-        print("[Cam] Switching to Low Res...")
+        # 4. Reset to Low Res Stream defaults
         configure_camera(STREAM_RES[0], STREAM_RES[1])
+        # Reset controls to auto
+        cam.picam2.set_controls({"ExposureTime": 0, "FrameDurationLimits": (0, 0)})
         
         if 'node' in globals(): node.last_cam_activity = time.time()
         
