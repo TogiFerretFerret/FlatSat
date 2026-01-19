@@ -154,6 +154,7 @@
         <!-- COL 2: OPTICAL & CONTROLS -->
         <div class="col" style="min-width: 0;">
             <div class="vid-container">
+                <!-- FIX: Point to /stream for MJPEG tunneling -->
                 <img class="live-feed" src="/stream" alt="NO SIGNAL" onerror="console.log('Stream Error')">
                 <div class="overlay">LIVE OPTICAL FEED [720p]</div>
             </div>
@@ -295,20 +296,15 @@
         scene.add(ghosts);
 
         function addCaptureMarker(quatArray) {
-            // Visualize a camera frustum (pyramid)
             const frustumGeo = new THREE.ConeGeometry(0.3, 0.5, 4, 1);
             const frustumMat = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true });
             const marker = new THREE.Mesh(frustumGeo, frustumMat);
             
-            // Reconstruct quaternion from array [w, x, y, z]
-            // Must match the mapping used in updateDisplay
             const q = new THREE.Quaternion(quatArray[2], quatArray[3], quatArray[1], quatArray[0]);
             
             // Apply Calibrated Offset
             const calibratedQ = offsetQuaternion.clone().multiply(q);
             
-            // Position: Place it on a virtual sphere (radius 3.5) based on direction
-            // Vector (0, -1, 0) is "Down" relative to cube. Rotate this vector by Q to get direction.
             const direction = new THREE.Vector3(0, -1, 0); 
             direction.applyQuaternion(calibratedQ);
             
@@ -359,11 +355,9 @@
             att_yaw: document.getElementById('att-yaw'), 
             att_pitch: document.getElementById('att-pitch'), 
             att_roll: document.getElementById('att-roll'),
-            // Raw Sensors
             ax: document.getElementById('ax'), ay: document.getElementById('ay'), az: document.getElementById('az'),
             gx: document.getElementById('gx'), gy: document.getElementById('gy'), gz: document.getElementById('gz'),
             mx: document.getElementById('mx'), my: document.getElementById('my'), mz: document.getElementById('mz'),
-            // Quaternion elements
             qw: document.getElementById('qw'), qx: document.getElementById('qx'), qy: document.getElementById('qy'), qz: document.getElementById('qz'),
             debug_q: document.getElementById('debug-q'),
             total_g: document.getElementById('total-g'), jerk: document.getElementById('jerk'), motion_state: document.getElementById('motion-state'),
@@ -384,9 +378,7 @@
 
         const evtSource = new EventSource("/telemetry_stream");
         let pendingData = null;
-        
-        // Calibration State
-        let offsetQuaternion = new THREE.Quaternion(); // Identity by default
+        let offsetQuaternion = new THREE.Quaternion(); 
         let lastReceivedQuaternion = new THREE.Quaternion();
 
         evtSource.onmessage = (e) => {
@@ -411,20 +403,12 @@
             ui.conn.innerText = d.status || "OFFLINE";
             ui.conn.style.color = (d.status === "ONLINE") ? "#00ff41" : "red";
 
-            // --- 3D Orientation Update ---
             if (d.quaternion) {
                 const q = d.quaternion;
-                
-                // MAPPING: Remap IMU (Z-up) to ThreeJS (Y-up)
                 lastReceivedQuaternion.set(q[2], q[3], q[1], q[0]); 
-
-                // Calculate display quaternion: offset * raw
                 const displayQ = offsetQuaternion.clone().multiply(lastReceivedQuaternion);
-                
-                // SLERP for smoothness
                 cube.quaternion.slerp(displayQ, 0.5);
                 
-                // Update Text (Raw values)
                 if(ui.qw) ui.qw.innerText = q[0].toFixed(3);
                 if(ui.qx) ui.qx.innerText = q[1].toFixed(3);
                 if(ui.qy) ui.qy.innerText = q[2].toFixed(3);
@@ -444,24 +428,20 @@
                 ui.att_roll.innerText = d.attitude.roll.toFixed(0) + "°";
             }
 
-            // Update Chart & Raw Accel
             if (d.accel) {
                 ui.ax.innerText = d.accel.x.toFixed(2);
                 ui.ay.innerText = d.accel.y.toFixed(2);
                 ui.az.innerText = d.accel.z.toFixed(2);
-
                 chartAccel.data.datasets[0].data.shift(); chartAccel.data.datasets[0].data.push(d.accel.x);
                 chartAccel.data.datasets[1].data.shift(); chartAccel.data.datasets[1].data.push(d.accel.y);
                 chartAccel.data.datasets[2].data.shift(); chartAccel.data.datasets[2].data.push(d.accel.z);
                 chartAccel.update('none'); 
             }
 
-            // Raw Gyro & Dynamics
             if (d.gyro) { 
                 ui.gx.innerText = d.gyro.x.toFixed(1);
                 ui.gy.innerText = d.gyro.y.toFixed(1);
                 ui.gz.innerText = d.gyro.z.toFixed(1);
-
                 const g_mag = Math.sqrt(d.gyro.x**2 + d.gyro.y**2 + d.gyro.z**2);
                 let state = "STATIONARY"; let color = "#00ff41";
                 if (g_mag > 150) { state = "TUMBLING"; color = "#ff0000"; }
@@ -470,7 +450,6 @@
                 ui.motion_state.innerText = state; ui.motion_state.style.color = color;
             }
 
-            // Raw Magnetometer
             if (d.mag) {
                 ui.mx.innerText = d.mag.x.toFixed(0);
                 ui.my.innerText = d.mag.y.toFixed(0);
@@ -480,7 +459,6 @@
             if (d.total_g) ui.total_g.innerText = d.total_g;
             if (d.jerk !== undefined) ui.jerk.innerText = d.jerk.toFixed(1);
 
-            // Camera Metadata
             if (d.cam_meta) {
                 if (d.cam_meta.res && d.cam_meta.res.includes('x')) {
                     ui.cam_res.innerText = d.cam_meta.res; ui.cam_res.style.color = "#fff";
@@ -497,7 +475,6 @@
                 }
             }
 
-            // Systems
             if (d.sys) {
                 ui.cpu_volts.innerText = d.sys.cpu_volts ? d.sys.cpu_volts.toFixed(2) + " V" : "--";
                 ui.cpu_clock.innerText = d.sys.cpu_clock + " MHz";
@@ -558,30 +535,7 @@
             if(d.rssi) ui.bt_rssi.innerText = d.rssi + " dBm";
         }
 
-        // --- LONG EXPOSURE LOGIC ---
-        let longExpStart = 0;
-        const btnLong = document.getElementById('btn-long-exp');
-
-        function startLongExp() {
-            longExpStart = Date.now();
-            btnLong.classList.add('active');
-            btnLong.innerText = "EXPOSING...";
-        }
-
-        function stopLongExp() {
-            if (longExpStart === 0) return;
-            
-            const duration = (Date.now() - longExpStart) / 1000;
-            longExpStart = 0;
-            btnLong.classList.remove('active');
-            btnLong.innerText = "LONG EXP (HOLD)";
-            
-            if (duration > 0.3) {
-                console.log(`Taking Long Exposure: ${duration.toFixed(2)}s`);
-                snap(duration);
-            }
-        }
-
+        // --- SNAPSHOT (FIXED: POST to /snapshot) ---
         async function snap(exposure=0) { 
             try { 
                 let url = '/snapshot';
@@ -590,11 +544,9 @@
                 let res = await fetch(url, {method:'POST'}); 
                 let data = await res.json();
                 
-                // Add Ghost to 3D View if pose returned
                 if(data.pose) {
                     addCaptureMarker(data.pose);
                 }
-                
                 setTimeout(loadGal, 500); 
             } catch(e) {} 
         }
@@ -617,7 +569,6 @@
         function closeLightbox() { document.getElementById('lightbox').style.display = 'none'; }
         loadGal();
         
-        // Polling Fallback
         setInterval(async () => {
             if (evtSource.readyState === 2) { 
                try { 
