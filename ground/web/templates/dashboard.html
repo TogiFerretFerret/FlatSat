@@ -154,7 +154,7 @@
         <!-- COL 2: OPTICAL & CONTROLS -->
         <div class="col" style="min-width: 0;">
             <div class="vid-container">
-                <img class="live-feed" src="/video_feed" alt="NO SIGNAL" onerror="console.log('Stream Error')">
+                <img class="live-feed" src="/stream" alt="NO SIGNAL" onerror="console.log('Stream Error')">
                 <div class="overlay">LIVE OPTICAL FEED [720p]</div>
             </div>
             
@@ -584,10 +584,10 @@
 
         async function snap(exposure=0) { 
             try { 
-                let url = '/capture'; 
+                let url = '/snapshot';
                 if (exposure > 0) url += `?exposure=${exposure.toFixed(2)}`;
                 
-                let res = await fetch(url, {method:'GET'}); 
+                let res = await fetch(url, {method:'POST'}); 
                 let data = await res.json();
                 
                 // Add Ghost to 3D View if pose returned
@@ -600,14 +600,28 @@
         }
         
         async function loadGal() {
-            // Placeholder
+            try {
+                const res = await fetch('/api/captures');
+                const files = await res.json();
+                ui.gallery.innerHTML = "";
+                files.forEach(f => {
+                    const img = document.createElement('img');
+                    img.src = `/captures/${f}?t=${Date.now()}`;
+                    img.className = "thumb";
+                    img.onclick = () => openLightbox(img.src);
+                    ui.gallery.appendChild(img);
+                });
+            } catch(e) {}
         }
+        function openLightbox(src) { document.getElementById('lightbox-img').src = src; document.getElementById('lightbox').style.display = 'flex'; }
+        function closeLightbox() { document.getElementById('lightbox').style.display = 'none'; }
+        loadGal();
         
         // Polling Fallback
         setInterval(async () => {
             if (evtSource.readyState === 2) { 
                try { 
-                   let res = await fetch('/telemetry');
+                   let res = await fetch('/api/telemetry');
                    updateDisplay(await res.json()); 
                } catch {} 
             }
