@@ -199,12 +199,34 @@
                 </div>
                 <div class="bar-bg" style="margin-top:-2px; margin-bottom:5px;"><div id="bar-bat" class="bar-fill" style="width:0%"></div></div>
                 <div class="data-row"><span>BAT VOLTS</span><span class="data-val" id="bat-volts">0.00 V</span></div>
+                <!-- ADDED: INPUT EST VOLTAGE -->
+                <div class="data-row"><span>INPUT (EST)</span><span class="data-val" id="bat-input">--</span></div>
                 <div class="data-row"><span>BAT TEMP</span><span class="data-val" id="bat-temp">0°C</span></div>
                 <div class="data-row" style="margin-bottom:8px;"><span>PLUGGED IN</span><span class="data-val" id="bat-plugged">NO</span></div>
 
                 <div class="data-row"><span>CORE VOLTS</span><span class="data-val" id="cpu-volts">0.00 V</span></div>
                 <div class="data-row"><span>CPU CLOCK</span><span class="data-val" id="cpu-clock">0 MHz</span></div>
-                <div class="data-row"><span>THREADS</span><span class="data-val" id="sys-threads">0</span></div>
+                <!-- CLOCK SPEED CONTROLS -->
+                <div class="data-row" style="justify-content:space-between; align-items:center;">
+                    <span>SPEED CTRL</span>
+                    <div style="display:flex; gap:3px;">
+                        <button class="badge" style="cursor:pointer; border:1px solid #444;" onclick="setClock('powersave')">ECO</button>
+                        <button class="badge" style="cursor:pointer; border:1px solid #444;" onclick="setClock('ondemand')">AUTO</button>
+                        <button class="badge" style="cursor:pointer; border:1px solid #444;" onclick="setClock('performance')">MAX</button>
+                    </div>
+                </div>
+                
+                <!-- I2C SPEED CONTROLS -->
+                <div class="data-row" style="justify-content:space-between; align-items:center; margin-top:2px;">
+                    <span>I2C CLOCK</span>
+                    <div style="display:flex; gap:3px;">
+                        <button class="badge" style="cursor:pointer; border:1px solid #444;" onclick="setI2C(100000)">100K</button>
+                        <button class="badge" style="cursor:pointer; border:1px solid #444;" onclick="setI2C(400000)">400K</button>
+                        <button class="badge" style="cursor:pointer; border:1px solid #444;" onclick="setI2C(1000000)">1M</button>
+                    </div>
+                </div>
+
+                <div class="data-row" style="margin-top:5px;"><span>THREADS</span><span class="data-val" id="sys-threads">0</span></div>
                 <div class="data-row"><span>THROTTLE</span><span class="data-val" id="throttle-hex">0x0</span></div>
                 <div id="health-badges" style="margin-top:5px; display:flex; flex-wrap:wrap; gap:2px;">
                     <span id="flag-uv" class="badge">UNDERVOLT</span>
@@ -428,6 +450,7 @@
             
             // Battery Elements
             bat_level: document.getElementById('bat-level'), bat_volts: document.getElementById('bat-volts'), 
+            bat_input: document.getElementById('bat-input'),
             bat_charging: document.getElementById('bat-charging'), bat_temp: document.getElementById('bat-temp'),
             bat_plugged: document.getElementById('bat-plugged'), bar_bat: document.getElementById('bar-bat'),
 
@@ -458,6 +481,26 @@
         function calibrateIMU() {
             offsetQuaternion.copy(lastReceivedQuaternion).invert();
             console.log("Calibration set. Offset:", offsetQuaternion);
+        }
+
+        async function setClock(mode) {
+            try {
+                await fetch('/api/clock', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({mode: mode})
+                });
+            } catch(e) { console.error(e); }
+        }
+
+        async function setI2C(baud) {
+            try {
+                await fetch('/api/i2c', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({baudrate: baud})
+                });
+            } catch(e) { console.error(e); }
         }
 
         function updateDisplay(d) {
@@ -540,6 +583,12 @@
             if (d.power) {
                 if(ui.bat_level) ui.bat_level.innerText = d.power.level + "%";
                 if(ui.bat_volts) ui.bat_volts.innerText = d.power.voltage + " V";
+                
+                // Show Calculated Input Voltage or --
+                if(ui.bat_input) {
+                    ui.bat_input.innerText = d.power.input_est ? d.power.input_est + " V" : "--";
+                }
+
                 if(ui.bat_charging) {
                     ui.bat_charging.innerText = d.power.charging ? "CHARGING" : "DISCHG";
                     ui.bat_charging.style.color = d.power.charging ? "#00ff41" : "#ffcc00";

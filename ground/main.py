@@ -17,8 +17,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CAPTURE_DIR = os.path.join(BASE_DIR, "captures")
 if not os.path.exists(CAPTURE_DIR): os.makedirs(CAPTURE_DIR)
 
+# Initialize Flask with specific folder paths if needed, or defaults
 app = Flask(__name__, template_folder="web/templates", static_folder="web/static")
 
+# --- FLASK CONFIG ---
+# CRITICAL: Disable buffering to ensure real-time telemetry flow
 @app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
@@ -49,7 +52,9 @@ def bt_client_thread():
             while True:
                 header = s.recv(8)
                 if not header: break
+                
                 type_bytes, length = struct.unpack("!4sI", header)
+                
                 payload = b''
                 while len(payload) < length:
                     chunk = s.recv(length - len(payload))
@@ -59,8 +64,20 @@ def bt_client_thread():
                 try:
                     new_data = json.loads(payload.decode('utf-8'))
                     new_data["status"] = "ONLINE"
+                    
+                    # --- GROUND STATION MATH: Input Voltage Estimation ---
+                    # We calculate this here, effectively "offloading" logic from the Pi Node
+                    if new_data.get('power', {}).get('plugged'):
+                        bat_v = new_data['power'].get('voltage', 0)
+                        # Heuristic: Input is usually ~10-15% higher than battery during charge + overhead
+                        # This estimates the USB input voltage based on the battery state
+                        est_input = round((bat_v * 1.12) + 0.15, 2)
+                        new_data['power']['input_est'] = est_input
+                    else:
+                        new_data['power']['input_est'] = 0.0
+                    
                     with data_lock: telemetry_data = new_data
-                except json.JSONDecodeError as e:
+                except json.JSONDecodeError:
                     pass
                     
         except Exception as e:
@@ -82,21 +99,25 @@ def index():
 
 @app.route('/api/telemetry')
 def api_telemetry():
+    """JSON API for Polling (Restored)"""
     with data_lock:
         return jsonify(telemetry_data)
 
 @app.route('/telemetry_stream')
 def telemetry_stream():
+    """SSE Bridge: Pushes BT data to Browser"""
     def event_stream():
         while True:
             with data_lock:
                 json_data = json.dumps(telemetry_data)
             yield f"data: {json_data}\n\n"
-            time.sleep(0.25)
+            time.sleep(0.25) # 4Hz
+
     return Response(event_stream(), mimetype='text/event-stream')
 
 @app.route('/stream')
 def proxy_video():
+    """Proxy MJPEG from Pi"""
     try:
         req = requests.get(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/stream", stream=True, timeout=2)
         return Response(stream_with_context(req.iter_content(chunk_size=4096)), content_type=req.headers['Content-Type'])
@@ -104,11 +125,13 @@ def proxy_video():
 
 @app.route('/snapshot', methods=['POST'])
 def proxy_snapshot():
-    """Trigger snapshot, Save JPG + JSON Metadata"""
+    """Trigger snapshot on Pi, save locally on GS"""
     try:
+        # 1. Extract params from Dashboard request (e.g. ?exposure=1.5)
         exposure = request.args.get('exposure', 0.0)
         
-        # Call Node
+        # 2. Forward to Pi with params
+        # Timeout increased to 20s to allow for long exposures + processing
         resp = requests.post(
             f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/snapshot", 
             params={'exposure': exposure},
@@ -158,15 +181,38 @@ def proxy_snapshot():
 
 @app.route('/api/captures')
 def list_captures():
+    """List images for the gallery"""
     try:
+        # Case-insensitive extension check
         files = sorted([f for f in os.listdir(CAPTURE_DIR) if f.lower().endswith(('.jpg', '.jpeg'))], reverse=True)
         return jsonify(files)
     except Exception as e:
+        print(f"[GS] List Error: {e}")
         return jsonify([])
 
 @app.route('/captures/<path:filename>')
 def serve_capture(filename):
     return send_from_directory(CAPTURE_DIR, filename)
+
+# --- HARDWARE CONTROL PROXIES ---
+
+@app.route('/api/clock', methods=['POST'])
+def proxy_clock():
+    """Proxy clock/governor settings to Pi"""
+    try:
+        requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/api/clock", json=request.json, timeout=3)
+        return jsonify({"status": "proxied"})
+    except Exception as e:
+        return jsonify({"status": "error", "msg": str(e)}), 502
+
+@app.route('/api/i2c', methods=['POST'])
+def proxy_i2c():
+    """Proxy I2C speed settings to Pi"""
+    try:
+        requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/api/i2c", json=request.json, timeout=3)
+        return jsonify({"status": "proxied"})
+    except Exception as e:
+        return jsonify({"status": "error", "msg": str(e)}), 502
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000, threaded=True)
