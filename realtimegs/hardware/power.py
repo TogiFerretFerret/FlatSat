@@ -1,7 +1,7 @@
 import threading
 import time
 from collections import deque
-# custom power driver for pisugar 3
+
 try:
     import smbus
 except ImportError:
@@ -10,13 +10,19 @@ except ImportError:
 # --- CONFIG FOR PISUGAR 3 ONLY ---
 PISUGAR_ADDR = 0x57 
 
-# Discharge curve specifically for PiSugar 3 (4.2V max)
+# Discharge curve for High Capacity (5000mAh/Plus) batteries
+# This matches the "91%" reading for ~3.97V vs the "78%" of the standard curve
 BATTERY_CURVE = [
-    (4.2, 100.0), 
-    (4.0, 80.0), 
-    (3.7, 60.0), 
-    (3.5, 20.0), 
-    (3.1, 0.0)
+    (4.10, 100.0),
+    (4.05, 95.0),
+    (3.90, 88.0),
+    (3.80, 77.0),
+    (3.70, 65.0),
+    (3.62, 55.0),
+    (3.58, 49.0),
+    (3.49, 25.6),
+    (3.32, 4.5),
+    (3.1, 0.0),
 ]
 
 class PiSugar:
