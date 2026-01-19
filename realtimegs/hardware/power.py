@@ -1,7 +1,7 @@
 import threading
 import time
 from collections import deque
-# custom modded power driver for PiSugar 3
+# custom power driver for pisugar 3
 try:
     import smbus
 except ImportError:
@@ -11,7 +11,6 @@ except ImportError:
 PISUGAR_ADDR = 0x57 
 
 # Discharge curve specifically for PiSugar 3 (4.2V max)
-# Format: (Voltage, Percentage)
 BATTERY_CURVE = [
     (4.2, 100.0), 
     (4.0, 80.0), 
@@ -74,16 +73,15 @@ class PiSugar:
         # 2. Polling Phase
         while True:
             try:
-                # Read necessary registers in chunks to avoid I2C timeouts
-                # We mainly need the first ~40 bytes for status, but we'll read a safe block
-                # Registers: 
-                # 0x02: Control
-                # 0x04: Temp
-                # 0x22-0x23: Voltage
+                # FIX: Read in chunks of 32 bytes (SMBus Limit)
+                # We need up to register 0x23 (Voltage), so 0x00-0x2F is sufficient.
                 
-                # Reading 0x00 to 0x30 covers everything we need
-                data_block = self.bus.read_i2c_block_data(PISUGAR_ADDR, 0, 48)
-                self.i2creg = data_block
+                # Chunk 1: 0x00 - 0x1F (32 bytes)
+                chunk1 = self.bus.read_i2c_block_data(PISUGAR_ADDR, 0, 32)
+                # Chunk 2: 0x20 - 0x2F (16 bytes)
+                chunk2 = self.bus.read_i2c_block_data(PISUGAR_ADDR, 32, 16)
+                
+                self.i2creg = chunk1 + chunk2
                 
                 self._parse_data()
                 
@@ -96,6 +94,7 @@ class PiSugar:
         if not self.i2creg or len(self.i2creg) < 36: return
 
         # 1. Voltage (High byte at 0x22, Low byte at 0x23)
+        # Note: 0x22 is index 34 in decimal, 0x23 is index 35
         high = self.i2creg[0x22]
         low = self.i2creg[0x23]
         self.battery_voltage = ((high << 8) + low) / 1000.0
