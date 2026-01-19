@@ -80,7 +80,7 @@
         #lightbox-close { margin-top: 10px; color: #fff; cursor: pointer; font-size: 1.2em; text-decoration: underline; }
         
         /* 3D Container */
-        #container-3d { width: 100%; height: 150px; background: #000; border: 1px solid var(--border); margin-bottom: 5px; }
+        #container-3d { width: 100%; height: 180px; background: #000; border: 1px solid var(--border); margin-bottom: 5px; }
         
         /* Chart Container */
         .chart-container { position: relative; height: 100px; width: 100%; margin-bottom: 5px; }
@@ -96,7 +96,7 @@
         <!-- COL 1: DYNAMICS -->
         <div class="col">
             <div class="panel">
-                <h2>Attitude (3D)</h2>
+                <h2>Orientation (3D)</h2>
                 <div id="container-3d"></div>
                 <div class="data-row"><span>HEADING</span><span class="data-val" id="att-yaw">0°</span></div>
                 <div class="data-row"><span>PITCH</span><span class="data-val" id="att-pitch">0°</span></div>
@@ -104,14 +104,20 @@
             </div>
             
             <div class="panel">
-                <h2>Sensors (History)</h2>
-                <div class="chart-container">
-                    <canvas id="chart-accel"></canvas>
+                <h2>Quaternion</h2>
+                <div class="grid-4">
+                    <div class="sensor-box"><span class="lbl">W</span><span class="val" id="qw">0.00</span></div>
+                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="qx">0.00</span></div>
+                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="qy">0.00</span></div>
+                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="qz">0.00</span></div>
                 </div>
             </div>
 
             <div class="panel">
                 <h2>Accelerometer</h2>
+                <div class="chart-container" style="height: 60px;">
+                    <canvas id="chart-accel"></canvas>
+                </div>
                 <div class="grid-3">
                     <div class="sensor-box"><span class="lbl">X</span><span class="val" id="ax">0.0</span></div>
                     <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="ay">0.0</span></div>
@@ -135,13 +141,6 @@
                     <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="my">0.0</span></div>
                     <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="mz">0.0</span></div>
                 </div>
-            </div>
-
-            <div class="panel">
-                <h2>Motion</h2>
-                <div class="data-row"><span>STATE</span><span class="data-val" id="motion-state">--</span></div>
-                <div class="data-row" style="margin-top:5px; border-top:1px solid #333; padding-top:2px;"><span>TOTAL G</span><span class="data-val" id="total-g">1.00</span></div>
-                <div class="data-row"><span>JERK (m/s³)</span><span class="data-val" id="jerk">0.0</span></div>
             </div>
         </div>
 
@@ -208,15 +207,6 @@
         <!-- COL 4: DIAGNOSTICS & EXPANSION -->
         <div class="col">
             <div class="panel">
-                <h2>Quaternion</h2>
-                <div class="grid-4">
-                    <div class="sensor-box"><span class="lbl">W</span><span class="val" id="qw">0.00</span></div>
-                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="qx">0.00</span></div>
-                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="qy">0.00</span></div>
-                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="qz">0.00</span></div>
-                </div>
-            </div>
-            <div class="panel">
                 <h2>Thermals & Load</h2>
                 <div class="data-row"><span>CPU LOAD</span><span class="data-val" id="cpu-load">0%</span></div>
                 <div class="bar-bg"><div id="bar-load" class="bar-fill" style="width:0%"></div></div>
@@ -254,30 +244,59 @@
     <script>
         // --- 3D SETUP ---
         const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, 240/150, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ alpha: true });
-        renderer.setSize(230, 150);
+        // Light grey grid helper background for reference
+        // const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
+        // scene.add(gridHelper);
+
+        const camera = new THREE.PerspectiveCamera(50, 240/180, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        renderer.setSize(230, 180);
         document.getElementById('container-3d').appendChild(renderer.domElement);
 
-        const geometry = new THREE.BoxGeometry();
-        // Colored materials for orientation
-        const materials = [
-            new THREE.MeshBasicMaterial({ color: 0xff0000 }), // Right (Red)
-            new THREE.MeshBasicMaterial({ color: 0xaa0000 }), // Left
-            new THREE.MeshBasicMaterial({ color: 0x00ff00 }), // Top (Green)
-            new THREE.MeshBasicMaterial({ color: 0x00aa00 }), // Bottom
-            new THREE.MeshBasicMaterial({ color: 0x0000ff }), // Front (Blue)
-            new THREE.MeshBasicMaterial({ color: 0x0000aa })  // Back
-        ];
-        const cube = new THREE.Mesh(geometry, materials);
-        scene.add(cube);
-        
-        // Wireframe for visibility
-        const edges = new THREE.EdgesGeometry(geometry);
-        const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffffff }));
-        cube.add(line);
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(5, 10, 7);
+        scene.add(dirLight);
 
-        camera.position.z = 2.5;
+        // --- SATELLITE MODEL GROUP ---
+        const satellite = new THREE.Group();
+        scene.add(satellite);
+
+        // 1. Main Body (Gold Box)
+        const bodyGeo = new THREE.BoxGeometry(1.2, 1.2, 1.2);
+        const bodyMat = new THREE.MeshPhongMaterial({ color: 0xDAA520, shininess: 50 }); // Goldenrod
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        satellite.add(body);
+
+        // 2. Solar Panels (Blue, Wing-like)
+        const panelGeo = new THREE.BoxGeometry(0.1, 1.0, 2.5);
+        const panelMat = new THREE.MeshPhongMaterial({ color: 0x1E90FF, shininess: 80 }); // DodgerBlue
+        
+        const panelLeft = new THREE.Mesh(panelGeo, panelMat);
+        panelLeft.position.set(-1.0, 0, 0); // Extend Left (-X)
+        satellite.add(panelLeft);
+
+        const panelRight = new THREE.Mesh(panelGeo, panelMat);
+        panelRight.position.set(1.0, 0, 0); // Extend Right (+X)
+        satellite.add(panelRight);
+
+        // 3. Camera Lens / Direction Indicator (Dark Grey Cylinder on Front)
+        const lensGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 32);
+        const lensMat = new THREE.MeshPhongMaterial({ color: 0x333333 });
+        const lens = new THREE.Mesh(lensGeo, lensMat);
+        lens.rotation.x = Math.PI / 2; // Face forward
+        lens.position.z = 0.65; // Stick out of the front face (+Z)
+        satellite.add(lens);
+
+        // 4. Axes Helper (Attached to model so it rotates with it)
+        // Red = X (Right), Green = Y (Up), Blue = Z (Forward)
+        const axesHelper = new THREE.AxesHelper(2.5);
+        satellite.add(axesHelper);
+
+        camera.position.set(0, 2, 4);
+        camera.lookAt(0, 0, 0);
 
         function animate3D() {
             requestAnimationFrame(animate3D);
@@ -292,9 +311,9 @@
             data: {
                 labels: Array(50).fill(''),
                 datasets: [
-                    { label: 'X', data: Array(50).fill(0), borderColor: 'red', borderWidth: 1, pointRadius: 0 },
-                    { label: 'Y', data: Array(50).fill(0), borderColor: 'green', borderWidth: 1, pointRadius: 0 },
-                    { label: 'Z', data: Array(50).fill(0), borderColor: 'blue', borderWidth: 1, pointRadius: 0 }
+                    { label: 'X', data: Array(50).fill(0), borderColor: '#ff4444', borderWidth: 1, pointRadius: 0, tension: 0.1 },
+                    { label: 'Y', data: Array(50).fill(0), borderColor: '#44ff44', borderWidth: 1, pointRadius: 0, tension: 0.1 },
+                    { label: 'Z', data: Array(50).fill(0), borderColor: '#4444ff', borderWidth: 1, pointRadius: 0, tension: 0.1 }
                 ]
             },
             options: {
@@ -303,7 +322,12 @@
                 animation: false,
                 scales: {
                     x: { display: false },
-                    y: { grid: { color: '#333' }, ticks: { color: '#888' } }
+                    y: { 
+                        grid: { color: '#222' }, 
+                        ticks: { color: '#666', font: {size: 9} },
+                        suggestedMin: -10,
+                        suggestedMax: 10
+                    }
                 },
                 plugins: { legend: { display: false } }
             }
@@ -343,8 +367,6 @@
         evtSource.onmessage = (e) => {
             try {
                 pendingData = JSON.parse(e.data);
-                console.log("Telemetry received:", pendingData); // DEBUG LOGGING
-                
                 requestAnimationFrame(() => {
                     if(pendingData) {
                         updateDisplay(pendingData);
@@ -366,7 +388,7 @@
                 const targetQuaternion = new THREE.Quaternion(q[1], q[2], q[3], q[0]);
                 
                 // SLERP for smoothness (Spherical Linear Interpolation)
-                cube.quaternion.slerp(targetQuaternion, 0.5);
+                satellite.quaternion.slerp(targetQuaternion, 0.5);
                 
                 // Update Text
                 if(ui.qw) ui.qw.innerText = q[0].toFixed(3);
@@ -379,7 +401,7 @@
                 const roll = d.attitude.roll * (Math.PI/180);
                 const pitch = d.attitude.pitch * (Math.PI/180);
                 const yaw = d.attitude.yaw * (Math.PI/180);
-                cube.rotation.set(pitch, yaw, roll);
+                satellite.rotation.set(pitch, yaw, roll);
             }
 
             if (d.attitude) {
