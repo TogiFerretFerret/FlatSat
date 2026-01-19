@@ -4,27 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Artemis Engineering Console</title>
-    <!-- Three.js for 3D -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- Chart.js for Plots -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         :root { --bg: #050505; --panel: #111; --border: #333; --text: #00ff41; --dim: #00661a; --warn: #ffcc00; --alert: #ff0000; }
         body { background: var(--bg); color: var(--text); font-family: 'Consolas', 'Courier New', monospace; padding: 5px; margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; }
         
         header { display: flex; justify-content: space-between; border-bottom: 2px solid var(--text); margin-bottom: 5px; padding-bottom: 2px; font-size: 0.9em; }
-        
-        /* 4-Column Widescreen Layout */
-        .main-grid { 
-            display: grid; 
-            grid-template-columns: 240px 1fr 240px 240px; 
-            grid-template-rows: 1fr; 
-            gap: 5px; 
-            flex-grow: 1; 
-            min-height: 0; 
-        }
+        .main-grid { display: grid; grid-template-columns: 240px 1fr 240px 240px; grid-template-rows: 1fr; gap: 5px; flex-grow: 1; min-height: 0; }
         .col { display: flex; flex-direction: column; gap: 5px; overflow-y: auto; }
         
         .panel { background: var(--panel); border: 1px solid var(--border); padding: 5px; }
@@ -39,17 +27,7 @@
         .lbl { display: block; font-size: 0.6em; color: #888; }
         .val { font-size: 0.8em; font-weight: bold; }
 
-        .vid-container { 
-            flex-grow: 1; 
-            background: #080808; 
-            border: 1px solid var(--border); 
-            position: relative; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
-            min-height: 0; 
-            overflow: hidden; 
-        }
+        .vid-container { flex-grow: 1; background: #080808; border: 1px solid var(--border); position: relative; display: flex; align-items: center; justify-content: center; min-height: 0; overflow: hidden; }
         img.live-feed { width: 100%; height: 100%; object-fit: contain; display: block; }
         .overlay { position: absolute; top: 5px; left: 5px; background: rgba(0,0,0,0.7); padding: 3px; font-size: 0.7em; border: 1px solid var(--dim); pointer-events: none; }
 
@@ -57,7 +35,6 @@
         .bar-fill { height: 100%; background: var(--text); width: 0%; transition: width 0.2s; }
         .bar-warn { background: var(--warn); }
         .bar-alert { background: var(--alert); }
-        
         .badge { display: inline-block; padding: 1px 4px; border-radius: 2px; font-size: 0.65em; margin-right: 2px; background: #222; color: #888; }
         .badge.active { background: var(--alert); color: #fff; font-weight: bold; }
 
@@ -79,10 +56,7 @@
         #lightbox img { max-width: 90%; max-height: 85%; border: 2px solid var(--text); box-shadow: 0 0 20px var(--dim); }
         #lightbox-close { margin-top: 10px; color: #fff; cursor: pointer; font-size: 1.2em; text-decoration: underline; }
         
-        /* 3D Container */
         #container-3d { width: 100%; height: 180px; background: #000; border: 1px solid var(--border); margin-bottom: 5px; }
-        
-        /* Chart Container */
         .chart-container { position: relative; height: 100px; width: 100%; margin-bottom: 5px; }
     </style>
 </head>
@@ -267,35 +241,28 @@
         scene.add(dirLight);
 
         // --- CUBE MODEL ---
-        // Materials mapping:
-        // 0: Right (+x) - Red
-        // 1: Left (-x) - Dark Red
-        // 2: Top (+y) - Green
-        // 3: Bottom (-y) - Gray (CAMERA)
-        // 4: Front (+z) - Blue (PORTS)
-        // 5: Back (-z) - Dark Blue
         const materials = [
-            new THREE.MeshPhongMaterial({ color: 0xff4444 }), // Right
-            new THREE.MeshPhongMaterial({ color: 0xaa2222 }), // Left
-            new THREE.MeshPhongMaterial({ color: 0x44ff44 }), // Top
-            new THREE.MeshPhongMaterial({ color: 0x888888 }), // Bottom (Camera)
-            new THREE.MeshPhongMaterial({ color: 0x4444ff }), // Front (Ports)
-            new THREE.MeshPhongMaterial({ color: 0x2222aa })  // Back
+            new THREE.MeshPhongMaterial({ color: 0xff4444 }), // Right (+X)
+            new THREE.MeshPhongMaterial({ color: 0xaa2222 }), // Left (-X)
+            new THREE.MeshPhongMaterial({ color: 0x44ff44 }), // Top (+Y)
+            new THREE.MeshPhongMaterial({ color: 0x888888 }), // Bottom (-Y) [CAMERA]
+            new THREE.MeshPhongMaterial({ color: 0x4444ff }), // Front (+Z) [PORTS]
+            new THREE.MeshPhongMaterial({ color: 0x2222aa })  // Back (-Z)
         ];
         
         const geometry = new THREE.BoxGeometry(1.5, 1.5, 1.5);
         const cube = new THREE.Mesh(geometry, materials);
         scene.add(cube);
 
-        // Visual Indicators
-        // 1. Camera Lens on Bottom (-Y)
+        // Indicators
+        // Camera Lens on Bottom (-Y)
         const lensGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.2, 32);
-        const lensMat = new THREE.MeshPhongMaterial({ color: 0x222222 }); // Dark lens
+        const lensMat = new THREE.MeshPhongMaterial({ color: 0x222222 }); 
         const lens = new THREE.Mesh(lensGeo, lensMat);
-        lens.position.y = -0.8; // Stick out of bottom
+        lens.position.y = -0.8; 
         cube.add(lens);
 
-        // 2. Axes Helper (Sticking out)
+        // Axes Helper (Sticking out)
         const axesHelper = new THREE.AxesHelper(2.5);
         cube.add(axesHelper);
 
@@ -386,9 +353,9 @@
         evtSource.onerror = () => { ui.conn.innerText = "RECONNECTING..."; ui.conn.style.color = "orange"; };
 
         function calibrateIMU() {
-            // Reset logic: Make current orientation the new "Identity"
-            // Desired (Identity) = Offset * Current
-            // Offset = Current^-1
+            // Reset Ref Logic:
+            // We want the current physical orientation to act as "Identity" (Camera Down).
+            // Current * Inverse = Identity.
             offsetQuaternion.copy(lastReceivedQuaternion).invert();
             console.log("Calibration set. Offset:", offsetQuaternion);
         }
@@ -397,12 +364,20 @@
             ui.conn.innerText = d.status || "OFFLINE";
             ui.conn.style.color = (d.status === "ONLINE") ? "#00ff41" : "red";
 
-            // Update 3D Cube with Calibration
+            // --- 3D Orientation Update ---
             if (d.quaternion) {
                 const q = d.quaternion;
-                // Store raw for calibration logic
-                lastReceivedQuaternion.set(q[1], q[2], q[3], q[0]); // x, y, z, w
                 
+                // MAPPING: Remap IMU (Z-up) to ThreeJS (Y-up)
+                // IMU: q[0]=W, q[1]=X(Roll), q[2]=Y(Pitch), q[3]=Z(Yaw)
+                // ThreeJS: x, y, z, w
+                // New Mapping: X_3d = Y_imu, Y_3d = Z_imu, Z_3d = X_imu
+                // Invert Z component to correct chirality
+                
+                lastReceivedQuaternion.set(q[2], q[3], q[1], q[0]); 
+                // Note: q[3] might need to be -q[3] depending on exact mounting direction
+                // If it spins backwards, change q[3] to -q[3] above.
+
                 // Calculate display quaternion: offset * raw
                 const displayQ = offsetQuaternion.clone().multiply(lastReceivedQuaternion);
                 
