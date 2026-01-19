@@ -343,6 +343,8 @@
         evtSource.onmessage = (e) => {
             try {
                 pendingData = JSON.parse(e.data);
+                console.log("Telemetry received:", pendingData); // DEBUG LOGGING
+                
                 requestAnimationFrame(() => {
                     if(pendingData) {
                         updateDisplay(pendingData);
@@ -484,7 +486,7 @@
                     ui.img_cap.innerText = "~" + Math.floor(free / 4) + " SHOTS";
                 }
                 
-                ui.uptime.innerText = new Date(d.sys.uptime_script * 1000).toISOString().substr(11, 8);
+                ui.uptime.innerText = new Date((d.sys.uptime_script || 0) * 1000).toISOString().substr(11, 8);
 
                 const flags = d.sys.throttle_flags || [];
                 document.getElementById('flag-throt').className = flags.includes('THROTTLED') ? "badge active" : "badge";
