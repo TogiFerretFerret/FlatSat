@@ -111,6 +111,33 @@
             </div>
 
             <div class="panel">
+                <h2>Accelerometer</h2>
+                <div class="grid-3">
+                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="ax">0.0</span></div>
+                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="ay">0.0</span></div>
+                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="az">0.0</span></div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>Gyroscope</h2>
+                <div class="grid-3">
+                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="gx">0.0</span></div>
+                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="gy">0.0</span></div>
+                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="gz">0.0</span></div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>Magnetometer</h2>
+                <div class="grid-3">
+                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="mx">0.0</span></div>
+                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="my">0.0</span></div>
+                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="mz">0.0</span></div>
+                </div>
+            </div>
+
+            <div class="panel">
                 <h2>Motion</h2>
                 <div class="data-row"><span>STATE</span><span class="data-val" id="motion-state">--</span></div>
                 <div class="data-row" style="margin-top:5px; border-top:1px solid #333; padding-top:2px;"><span>TOTAL G</span><span class="data-val" id="total-g">1.00</span></div>
@@ -180,6 +207,15 @@
 
         <!-- COL 4: DIAGNOSTICS & EXPANSION -->
         <div class="col">
+            <div class="panel">
+                <h2>Quaternion</h2>
+                <div class="grid-4">
+                    <div class="sensor-box"><span class="lbl">W</span><span class="val" id="qw">0.00</span></div>
+                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="qx">0.00</span></div>
+                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="qy">0.00</span></div>
+                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="qz">0.00</span></div>
+                </div>
+            </div>
             <div class="panel">
                 <h2>Thermals & Load</h2>
                 <div class="data-row"><span>CPU LOAD</span><span class="data-val" id="cpu-load">0%</span></div>
@@ -279,6 +315,12 @@
             att_yaw: document.getElementById('att-yaw'), 
             att_pitch: document.getElementById('att-pitch'), 
             att_roll: document.getElementById('att-roll'),
+            // Raw Sensors
+            ax: document.getElementById('ax'), ay: document.getElementById('ay'), az: document.getElementById('az'),
+            gx: document.getElementById('gx'), gy: document.getElementById('gy'), gz: document.getElementById('gz'),
+            mx: document.getElementById('mx'), my: document.getElementById('my'), mz: document.getElementById('mz'),
+            // Quaternion elements
+            qw: document.getElementById('qw'), qx: document.getElementById('qx'), qy: document.getElementById('qy'), qz: document.getElementById('qz'),
             total_g: document.getElementById('total-g'), jerk: document.getElementById('jerk'), motion_state: document.getElementById('motion-state'),
             cam_fps: document.getElementById('cam-fps'), cam_exp: document.getElementById('cam-exp'),
             cam_gain: document.getElementById('cam-gain'), cam_dgain: document.getElementById('cam-dgain'),
@@ -316,31 +358,55 @@
             ui.conn.style.color = (d.status === "ONLINE") ? "#00ff41" : "red";
 
             // Update 3D Cube (Use quaternion from backend if available, else euler)
-            // Backend sends [w, x, y, z], Three.js expects (x, y, z, w)
-            // Note: Coordinate mapping might be needed depending on IMU orientation
-            if (d.attitude) {
-                // Fallback to Euler if quaternion unavailable/tricky
-                // Convert degrees to radians
+            if (d.quaternion) {
+                // Backend sends [w, x, y, z]. Three.js needs (x, y, z, w).
+                const q = d.quaternion;
+                const targetQuaternion = new THREE.Quaternion(q[1], q[2], q[3], q[0]);
+                
+                // SLERP for smoothness (Spherical Linear Interpolation)
+                cube.quaternion.slerp(targetQuaternion, 0.5);
+                
+                // Update Text
+                if(ui.qw) ui.qw.innerText = q[0].toFixed(3);
+                if(ui.qx) ui.qx.innerText = q[1].toFixed(3);
+                if(ui.qy) ui.qy.innerText = q[2].toFixed(3);
+                if(ui.qz) ui.qz.innerText = q[3].toFixed(3);
+            } 
+            else if (d.attitude) {
+                // Fallback to Euler if quaternion unavailable
                 const roll = d.attitude.roll * (Math.PI/180);
                 const pitch = d.attitude.pitch * (Math.PI/180);
                 const yaw = d.attitude.yaw * (Math.PI/180);
-                cube.rotation.set(pitch, yaw, roll); // Order might need tuning based on mount
-                
+                cube.rotation.set(pitch, yaw, roll);
+            }
+
+            if (d.attitude) {
                 ui.att_yaw.innerText = d.attitude.yaw.toFixed(0) + "°";
                 ui.att_pitch.innerText = d.attitude.pitch.toFixed(0) + "°";
                 ui.att_roll.innerText = d.attitude.roll.toFixed(0) + "°";
             }
 
-            // Update Chart
+            // Update Chart & Raw Accel
             if (d.accel) {
+                // Update text values
+                ui.ax.innerText = d.accel.x.toFixed(2);
+                ui.ay.innerText = d.accel.y.toFixed(2);
+                ui.az.innerText = d.accel.z.toFixed(2);
+
+                // Update chart
                 chartAccel.data.datasets[0].data.shift(); chartAccel.data.datasets[0].data.push(d.accel.x);
                 chartAccel.data.datasets[1].data.shift(); chartAccel.data.datasets[1].data.push(d.accel.y);
                 chartAccel.data.datasets[2].data.shift(); chartAccel.data.datasets[2].data.push(d.accel.z);
                 chartAccel.update('none'); // Efficient update
             }
 
-            // Dynamics
+            // Raw Gyro & Dynamics
             if (d.gyro) { 
+                // Update text values
+                ui.gx.innerText = d.gyro.x.toFixed(1);
+                ui.gy.innerText = d.gyro.y.toFixed(1);
+                ui.gz.innerText = d.gyro.z.toFixed(1);
+
                 const g_mag = Math.sqrt(d.gyro.x**2 + d.gyro.y**2 + d.gyro.z**2);
                 let state = "STATIONARY"; let color = "#00ff41";
                 if (g_mag > 150) { state = "TUMBLING"; color = "#ff0000"; }
@@ -348,6 +414,14 @@
                 else if (g_mag > 2) { state = "STABLE"; color = "#0088ff"; }
                 ui.motion_state.innerText = state; ui.motion_state.style.color = color;
             }
+
+            // Raw Magnetometer
+            if (d.mag) {
+                ui.mx.innerText = d.mag.x.toFixed(0);
+                ui.my.innerText = d.mag.y.toFixed(0);
+                ui.mz.innerText = d.mag.z.toFixed(0);
+            }
+
             if (d.total_g) ui.total_g.innerText = d.total_g;
             if (d.jerk !== undefined) ui.jerk.innerText = d.jerk.toFixed(1);
 
