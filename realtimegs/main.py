@@ -15,18 +15,20 @@ from flask import Flask, Response, send_file, request, make_response
 try:
     from hardware.camera import CameraSystem
     from hardware.imu import IMU
+    from hardware.power import PiSugar # Added Power Driver
 except ImportError:
     print("Hardware libraries missing. Ensure hardware/ folder exists.")
     sys.exit(1)
 
 # --- CONFIG ---
 HTTP_PORT = 8000 
-STREAM_RES = (640, 480)     # Fast, low lag
-CAPTURE_RES = (2592, 1944)  # 5MP High Quality
+STREAM_RES = (640, 480)     
+CAPTURE_RES = (2592, 1944)  
 
 # Initialize Global Hardware
 cam = CameraSystem()
 imu = IMU()
+power = PiSugar() # Initialize Battery Manager
 cam_lock = threading.Lock()
 
 # --- SYSTEM MONITOR ---
@@ -35,7 +37,6 @@ class SystemMonitor:
         print("[SysMon] Initializing System Monitor...")
         self.lock = threading.Lock()
         
-        # FULL DEFAULTS
         self.cached_stats = {
             "cpu_volts": 0.0, "cpu_clock": 0, "throttle_hex": "0x0", "throttle_flags": ["INIT"],
             "gpu_mem": "0M", 
@@ -88,9 +89,7 @@ class SystemMonitor:
         except: pass
 
     def get_stats(self):
-        """Returns the COMPLETE blended stats payload safely."""
         with self.lock:
-            # 1. Update Fast Stats (Network/CPU Load)
             try:
                 self.update_network_stats()
                 with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
@@ -100,12 +99,10 @@ class SystemMonitor:
                 cpu_temp = 0
                 cpu_load = 0
 
-            # 2. Update Slow Stats (Hardware/Disk/Processes) every 2s
             if time.time() - self.last_slow_update > 2.0:
                 self._update_slow_stats()
                 self.last_slow_update = time.time()
 
-            # 3. Merge
             full_stats = self.cached_stats.copy()
             full_stats.update(self.net_stats)
             full_stats["cpu_temp"] = cpu_temp
@@ -145,7 +142,6 @@ class SystemMonitor:
             with open("/proc/uptime", "r") as f:
                 self.cached_stats["uptime_sys"] = int(float(f.read().split()[0]))
             self.cached_stats["uptime_script"] = int(time.time() - self.start_time)
-            
             res = subprocess.check_output(["hostname", "-I"], stderr=subprocess.DEVNULL)
             self.cached_stats["ip_addr"] = res.decode().strip().split(" ")[0]
         except: pass
@@ -161,7 +157,6 @@ class SystemMonitor:
                             self.cached_stats["wifi_dbm"] = int(float(parts[3]))
         except: pass
 
-        # Process List
         try:
             cmd = ["ps", "-Ao", "pid,comm,pcpu,pmem", "--sort=-pcpu"]
             output = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode()
@@ -244,9 +239,13 @@ def assemble_telemetry():
     data["sys"]["active_threads"] = threading.active_count()
     if data.get("temp"): data["sys"]["imu_temp"] = round(data["temp"], 1)
     
+    # ADDED: Battery Data
+    data["power"] = power.get_data()
+
     if frame_counter % 20 == 0:
         s = data["sys"]
-        print(f"[Telem] CPU:{s['cpu_load']}% Temp:{s['cpu_temp']}C Mem:{s['ram_percent']}% WiFi:{s['wifi_dbm']}dBm")
+        p = data["power"]
+        print(f"[Telem] CPU:{s['cpu_load']}% | Bat: {p['level']}% ({p['voltage']}V)")
 
     try:
         meta = cam.picam2.capture_metadata()
@@ -363,19 +362,15 @@ def telemetry_stream():
 
 @app.route('/snapshot', methods=['POST'])
 def snapshot():
-    """Capture High Res + Return Pose Metadata in Headers"""
     stream = io.BytesIO()
     exposure_sec = request.args.get('exposure', default=0.0, type=float)
     
     with cam_lock:
         print(f"[Cam] Snap Request (Exp: {exposure_sec}s)")
-        
-        # 1. Grab Telemetry State NOW
         data = assemble_telemetry()
         quat = data.get("quaternion", [1,0,0,0])
         accel = data.get("accel", {"x":0,"y":0,"z":0})
         
-        # 2. Config & Shoot
         configure_camera(CAPTURE_RES[0], CAPTURE_RES[1])
         if exposure_sec > 0:
             us = int(exposure_sec * 1000000)
@@ -391,12 +386,9 @@ def snapshot():
         if 'node' in globals(): node.last_cam_activity = time.time()
         
     stream.seek(0)
-    
-    # 3. Create Response with Headers
     response = make_response(send_file(stream, mimetype='image/jpeg', download_name='snap.jpg'))
     response.headers['X-Pose'] = ",".join(map(str, quat))
     response.headers['X-Accel'] = f"{accel['x']},{accel['y']},{accel['z']}"
-    
     return response
 
 if __name__ == "__main__":

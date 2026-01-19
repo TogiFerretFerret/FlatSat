@@ -94,7 +94,10 @@
             <div class="panel">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <h2>Orientation (3D)</h2>
-                    <button class="badge" style="cursor:pointer; border:1px solid #666; font-size:0.7em;" onclick="calibrateIMU()">RESET REF</button>
+                    <div style="display:flex; gap:5px;">
+                        <button class="badge" style="cursor:pointer; border:1px solid #666; font-size:0.7em;" onclick="clearGhosts()">CLR TRACE</button>
+                        <button class="badge" style="cursor:pointer; border:1px solid #666; font-size:0.7em;" onclick="calibrateIMU()">RESET REF</button>
+                    </div>
                 </div>
                 <div id="container-3d"></div>
                 <div class="data-row" style="font-size:0.6em; color:#666;">DEBUG Q: <span id="debug-q">0,0,0,0</span></div>
@@ -154,7 +157,6 @@
         <!-- COL 2: OPTICAL & CONTROLS -->
         <div class="col" style="min-width: 0;">
             <div class="vid-container">
-                <!-- FIX: Point to /stream for MJPEG tunneling -->
                 <img class="live-feed" src="/stream" alt="NO SIGNAL" onerror="console.log('Stream Error')">
                 <div class="overlay">LIVE OPTICAL FEED [720p]</div>
             </div>
@@ -179,7 +181,16 @@
         <div class="col">
             <div class="panel">
                 <h2>Health & Power</h2>
-                <div class="data-row"><span>EST POWER</span><span class="data-val" id="est-power">~0.0 W</span></div>
+                <!-- BATTERY SECTION START -->
+                <div class="data-row" style="border-bottom:1px dashed #333; margin-bottom:4px; padding-bottom:4px;">
+                    <span>BATTERY</span><span class="data-val"><span id="bat-level">0%</span> (<span id="bat-charging">DISCHG</span>)</span>
+                </div>
+                <div class="bar-bg" style="margin-top:-2px; margin-bottom:5px;"><div id="bar-bat" class="bar-fill" style="width:0%"></div></div>
+                <div class="data-row"><span>BAT VOLTS</span><span class="data-val" id="bat-volts">0.00 V</span></div>
+                <div class="data-row"><span>BAT TEMP</span><span class="data-val" id="bat-temp">0°C</span></div>
+                <div class="data-row" style="margin-bottom:8px;"><span>PLUGGED IN</span><span class="data-val" id="bat-plugged">NO</span></div>
+                <!-- BATTERY SECTION END -->
+
                 <div class="data-row"><span>CORE VOLTS</span><span class="data-val" id="cpu-volts">0.00 V</span></div>
                 <div class="data-row"><span>CPU CLOCK</span><span class="data-val" id="cpu-clock">0 MHz</span></div>
                 <div class="data-row"><span>THREADS</span><span class="data-val" id="sys-threads">0</span></div>
@@ -296,6 +307,7 @@
         scene.add(ghosts);
 
         function addCaptureMarker(quatArray) {
+            console.log("[3D] Adding Ghost...", quatArray); // DEBUG LOG
             const frustumGeo = new THREE.ConeGeometry(0.3, 0.5, 4, 1);
             const frustumMat = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true });
             const marker = new THREE.Mesh(frustumGeo, frustumMat);
@@ -312,6 +324,10 @@
             marker.quaternion.copy(calibratedQ);
             
             ghosts.add(marker);
+        }
+        
+        function clearGhosts() {
+            ghosts.clear();
         }
 
         function animate3D() {
@@ -370,6 +386,12 @@
             cpu_volts: document.getElementById('cpu-volts'), cpu_clock: document.getElementById('cpu-clock'), est_power: document.getElementById('est-power'),
             throttle_hex: document.getElementById('throttle-hex'), sys_threads: document.getElementById('sys-threads'),
             cpu_load: document.getElementById('cpu-load'), cpu_temp: document.getElementById('cpu-temp'), imu_temp: document.getElementById('imu-temp'),
+            
+            // Battery Elements
+            bat_level: document.getElementById('bat-level'), bat_volts: document.getElementById('bat-volts'), 
+            bat_charging: document.getElementById('bat-charging'), bat_temp: document.getElementById('bat-temp'),
+            bat_plugged: document.getElementById('bat-plugged'), bar_bat: document.getElementById('bar-bat'),
+
             ram_use: document.getElementById('ram-use'), gpu_mem: document.getElementById('gpu-mem'), disk_use: document.getElementById('disk-use'), img_cap: document.getElementById('img-cap'),
             bar_load: document.getElementById('bar-load'), bar_temp: document.getElementById('bar-temp'), 
             bar_ram: document.getElementById('bar-ram'), bar_disk: document.getElementById('bar-disk'),
@@ -474,6 +496,29 @@
                     ui.cam_res.innerText = status; ui.cam_res.style.color = "red";
                 }
             }
+            
+            // --- POWER DATA UPDATE ---
+            if (d.power) {
+                if(ui.bat_level) ui.bat_level.innerText = d.power.level + "%";
+                if(ui.bat_volts) ui.bat_volts.innerText = d.power.voltage + " V";
+                if(ui.bat_charging) {
+                    ui.bat_charging.innerText = d.power.charging ? "CHARGING" : "DISCHG";
+                    ui.bat_charging.style.color = d.power.charging ? "#00ff41" : "#ffcc00";
+                }
+                if(ui.bat_plugged) {
+                    ui.bat_plugged.innerText = d.power.plugged ? "YES" : "NO";
+                    ui.bat_plugged.style.color = d.power.plugged ? "#fff" : "#ff0000";
+                }
+                if(ui.bat_temp) ui.bat_temp.innerText = d.power.temp + "°C";
+                
+                // Update Battery Bar
+                if(ui.bar_bat) {
+                    ui.bar_bat.style.width = d.power.level + "%";
+                    if(d.power.level < 20) ui.bar_bat.className = "bar-fill bar-alert";
+                    else if(d.power.level < 50) ui.bar_bat.className = "bar-fill bar-warn";
+                    else ui.bar_bat.className = "bar-fill";
+                }
+            }
 
             if (d.sys) {
                 ui.cpu_volts.innerText = d.sys.cpu_volts ? d.sys.cpu_volts.toFixed(2) + " V" : "--";
@@ -501,10 +546,16 @@
                 if(d.sys.cpu_temp > 80) ui.bar_temp.className = "bar-fill bar-alert"; else ui.bar_temp.className = "bar-fill";
                 ui.imu_temp.innerText = (d.sys.imu_temp || 0) + "C";
                 
-                let watts = 3.0;
-                watts += (d.sys.cpu_load / 100) * 3.5;
-                if (d.cam_meta && d.cam_meta.fps > 0) watts += 1.2;
-                ui.est_power.innerText = "~" + watts.toFixed(1) + " W";
+                // Estimated Power (Use Real if available, fallback to estimate)
+                if(!d.power || d.power.status !== "ONLINE") {
+                    let watts = 3.0;
+                    watts += (d.sys.cpu_load / 100) * 3.5;
+                    if (d.cam_meta && d.cam_meta.fps > 0) watts += 1.2;
+                    ui.est_power.innerText = "~" + watts.toFixed(1) + " W";
+                } else {
+                    // We don't have current sensing in the API, so we keep the estimate separate
+                    // or just hide it? Let's leave EST POWER as is.
+                }
 
                 ui.ram_use.innerText = `${d.sys.ram_used_mb}/${d.sys.ram_total_mb} MB`;
                 ui.bar_ram.style.width = (d.sys.ram_percent||0) + "%";
