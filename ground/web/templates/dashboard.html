@@ -74,9 +74,20 @@
         .thumb { height: 100%; border: 1px solid #444; cursor: pointer; transition: transform 0.1s, border-color 0.1s; aspect-ratio: 16/9; object-fit: cover; }
         .thumb:hover { transform: scale(1.05); border-color: var(--text); }
 
-        #lightbox { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 1000; justify-content: center; align-items: center; flex-direction: column; }
-        #lightbox img { max-width: 90%; max-height: 85%; border: 2px solid var(--text); box-shadow: 0 0 20px var(--dim); }
-        #lightbox-close { margin-top: 10px; color: #fff; cursor: pointer; font-size: 1.2em; text-decoration: underline; }
+        /* INSPECTOR LIGHTBOX STYLES */
+        #lightbox { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 1000; justify-content: center; align-items: center; flex-direction: column; }
+        .lightbox-wrapper { display: flex; background: #111; border: 1px solid var(--text); max-width: 90%; max-height: 85%; box-shadow: 0 0 30px rgba(0,255,65,0.2); }
+        #lightbox-img { max-width: 65vw; max-height: 80vh; border-right: 1px solid var(--border); display: block; object-fit: contain; background: #000; }
+        
+        .lightbox-sidebar { width: 280px; padding: 15px; overflow-y: auto; background: #080808; display: flex; flex-direction: column; }
+        .lightbox-sidebar h3 { color: var(--text); border-bottom: 1px solid var(--dim); margin-top: 0; padding-bottom: 5px; font-size: 1em; letter-spacing: 1px; }
+        .meta-group { margin-bottom: 15px; }
+        .meta-label { color: #888; font-size: 0.7em; margin-bottom: 2px; text-transform: uppercase; }
+        .meta-val { color: #fff; font-size: 0.9em; font-weight: bold; border-bottom: 1px solid #222; padding-bottom: 2px; display: flex; justify-content: space-between; }
+        .meta-sub { font-size: 0.8em; color: #aaa; font-family: monospace; }
+        
+        #lightbox-close { margin-top: 15px; color: #fff; cursor: pointer; font-size: 1em; text-decoration: underline; opacity: 0.7; }
+        #lightbox-close:hover { opacity: 1; color: var(--text); }
         
         #container-3d { width: 100%; height: 180px; background: #000; border: 1px solid var(--border); margin-bottom: 5px; }
         .chart-container { position: relative; height: 100px; width: 100%; margin-bottom: 5px; }
@@ -157,6 +168,7 @@
         <!-- COL 2: OPTICAL & CONTROLS -->
         <div class="col" style="min-width: 0;">
             <div class="vid-container">
+                <!-- FIX: Point to /stream for MJPEG tunneling -->
                 <img class="live-feed" src="/stream" alt="NO SIGNAL" onerror="console.log('Stream Error')">
                 <div class="overlay">LIVE OPTICAL FEED [720p]</div>
             </div>
@@ -181,7 +193,7 @@
         <div class="col">
             <div class="panel">
                 <h2>Health & Power</h2>
-                <!-- BATTERY SECTION START -->
+                <!-- BATTERY SECTION -->
                 <div class="data-row" style="border-bottom:1px dashed #333; margin-bottom:4px; padding-bottom:4px;">
                     <span>BATTERY</span><span class="data-val"><span id="bat-level">0%</span> (<span id="bat-charging">DISCHG</span>)</span>
                 </div>
@@ -189,7 +201,6 @@
                 <div class="data-row"><span>BAT VOLTS</span><span class="data-val" id="bat-volts">0.00 V</span></div>
                 <div class="data-row"><span>BAT TEMP</span><span class="data-val" id="bat-temp">0°C</span></div>
                 <div class="data-row" style="margin-bottom:8px;"><span>PLUGGED IN</span><span class="data-val" id="bat-plugged">NO</span></div>
-                <!-- BATTERY SECTION END -->
 
                 <div class="data-row"><span>CORE VOLTS</span><span class="data-val" id="cpu-volts">0.00 V</span></div>
                 <div class="data-row"><span>CPU CLOCK</span><span class="data-val" id="cpu-clock">0 MHz</span></div>
@@ -255,9 +266,37 @@
         </div>
     </div>
 
+    <!-- METADATA INSPECTOR LIGHTBOX -->
     <div id="lightbox" onclick="closeLightbox()">
-        <img id="lightbox-img" src="" onclick="event.stopPropagation()">
-        <div id="lightbox-close">CLICK TO CLOSE</div>
+        <div class="lightbox-wrapper" onclick="event.stopPropagation()">
+            <img id="lightbox-img" src="">
+            <div class="lightbox-sidebar">
+                <h3>FLIGHT DATA LOG</h3>
+                <div id="meta-content" style="padding-top:10px;">
+                    <div class="meta-group">
+                        <div class="meta-label">Capture Time</div>
+                        <div class="meta-val" id="meta-time">--:--:--</div>
+                        <div class="meta-sub" id="meta-date">YYYY-MM-DD</div>
+                    </div>
+                    <div class="meta-group">
+                        <div class="meta-label">Exposure Time</div>
+                        <div class="meta-val" id="meta-exp">0.00 s</div>
+                    </div>
+                    <div class="meta-group">
+                        <div class="meta-label">Pose Quaternion (W,X,Y,Z)</div>
+                        <div class="meta-val" style="display:block; font-size:0.8em; font-family:monospace; line-height:1.4;">
+                            <span id="meta-qw">1.000</span>, <span id="meta-qx">0.000</span><br>
+                            <span id="meta-qy">0.000</span>, <span id="meta-qz">0.000</span>
+                        </div>
+                    </div>
+                    <div class="meta-group">
+                        <div class="meta-label">Acceleration (m/s²)</div>
+                        <div class="meta-val" id="meta-accel">0.0, 0.0, 0.0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="lightbox-close">CLICK OUTSIDE TO CLOSE</div>
     </div>
 
     <script>
@@ -546,16 +585,10 @@
                 if(d.sys.cpu_temp > 80) ui.bar_temp.className = "bar-fill bar-alert"; else ui.bar_temp.className = "bar-fill";
                 ui.imu_temp.innerText = (d.sys.imu_temp || 0) + "C";
                 
-                // Estimated Power (Use Real if available, fallback to estimate)
-                if(!d.power || d.power.status !== "ONLINE") {
-                    let watts = 3.0;
-                    watts += (d.sys.cpu_load / 100) * 3.5;
-                    if (d.cam_meta && d.cam_meta.fps > 0) watts += 1.2;
-                    ui.est_power.innerText = "~" + watts.toFixed(1) + " W";
-                } else {
-                    // We don't have current sensing in the API, so we keep the estimate separate
-                    // or just hide it? Let's leave EST POWER as is.
-                }
+                let watts = 3.0;
+                watts += (d.sys.cpu_load / 100) * 3.5;
+                if (d.cam_meta && d.cam_meta.fps > 0) watts += 1.2;
+                ui.est_power.innerText = "~" + watts.toFixed(1) + " W";
 
                 ui.ram_use.innerText = `${d.sys.ram_used_mb}/${d.sys.ram_total_mb} MB`;
                 ui.bar_ram.style.width = (d.sys.ram_percent||0) + "%";
@@ -611,13 +644,62 @@
                     const img = document.createElement('img');
                     img.src = `/captures/${f}?t=${Date.now()}`;
                     img.className = "thumb";
+                    // Modified: Open Lightbox instead of window.open
                     img.onclick = () => openLightbox(img.src);
                     ui.gallery.appendChild(img);
                 });
             } catch(e) {}
         }
-        function openLightbox(src) { document.getElementById('lightbox-img').src = src; document.getElementById('lightbox').style.display = 'flex'; }
+
+        async function openLightbox(src) { 
+            const img = document.getElementById('lightbox-img');
+            const metaDiv = document.getElementById('meta-content');
+            
+            img.src = src; 
+            document.getElementById('lightbox').style.display = 'flex';
+            
+            // --- METADATA FETCH LOGIC ---
+            // Convert .jpg to .json to find the sidecar file
+            const jsonPath = src.replace(/\.(jpg|jpeg)/i, ".json");
+            
+            // Reset fields
+            document.getElementById('meta-time').innerText = "Loading...";
+            
+            try {
+                const res = await fetch(jsonPath);
+                if(res.ok) {
+                    const data = await res.json();
+                    
+                    // Time
+                    const date = new Date(data.timestamp * 1000);
+                    document.getElementById('meta-time').innerText = date.toLocaleTimeString();
+                    document.getElementById('meta-date').innerText = date.toLocaleDateString();
+                    
+                    // Exposure
+                    document.getElementById('meta-exp').innerText = data.exposure_sec.toFixed(2) + " s";
+                    
+                    // Pose
+                    const q = data.pose_quaternion_wxyz;
+                    document.getElementById('meta-qw').innerText = q[0].toFixed(3);
+                    document.getElementById('meta-qx').innerText = q[1].toFixed(3);
+                    document.getElementById('meta-qy').innerText = q[2].toFixed(3);
+                    document.getElementById('meta-qz').innerText = q[3].toFixed(3);
+                    
+                    // Accel
+                    const a = data.accel_ms2;
+                    document.getElementById('meta-accel').innerText = `${a.x.toFixed(2)}, ${a.y.toFixed(2)}, ${a.z.toFixed(2)}`;
+                    
+                } else {
+                    document.getElementById('meta-time').innerText = "NO DATA";
+                }
+            } catch(e) {
+                console.error("Metadata Load Failed", e);
+                document.getElementById('meta-time').innerText = "ERROR";
+            }
+        }
+
         function closeLightbox() { document.getElementById('lightbox').style.display = 'none'; }
+        
         loadGal();
         
         setInterval(async () => {
