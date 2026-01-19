@@ -65,7 +65,8 @@ def bt_client_thread():
                     new_data = json.loads(payload.decode('utf-8'))
                     new_data["status"] = "ONLINE"
                     with data_lock: telemetry_data = new_data
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
+                    print(f"[GS] JSON Error: {e}")
                     pass
                     
         except Exception as e:

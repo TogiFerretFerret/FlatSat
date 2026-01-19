@@ -100,7 +100,7 @@ class SystemMonitor:
                 cpu_temp = 0
                 cpu_load = 0
 
-            # 2. Update Slow Stats (Hardware/Disk) every 2s
+            # 2. Update Slow Stats (Hardware/Disk/Processes) every 2s
             if time.time() - self.last_slow_update > 2.0:
                 self._update_slow_stats()
                 self.last_slow_update = time.time()
@@ -125,7 +125,7 @@ class SystemMonitor:
             raw_hex = res.decode().split("=")[1].strip()
             self.cached_stats["throttle_hex"] = raw_hex
             self.cached_stats["throttle_flags"] = self.decode_throttle(raw_hex)
-        except: pass # Non-Pi hardware support
+        except: pass 
 
         try:
             with open("/proc/meminfo", "r") as f:
@@ -162,6 +162,22 @@ class SystemMonitor:
                         if ":" in parts[0]:
                             self.cached_stats["wifi_link"] = int(float(parts[2]))
                             self.cached_stats["wifi_dbm"] = int(float(parts[3]))
+        except: pass
+
+        # --- PROCESS LIST (Moved here from get_stats) ---
+        try:
+            cmd = ["ps", "-Ao", "pid,comm,pcpu,pmem", "--sort=-pcpu"]
+            output = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode()
+            lines = output.strip().split('\n')
+            procs = []
+            for line in lines[1:]:
+                parts = line.split()
+                if len(parts) >= 4:
+                    name = parts[1]
+                    if name in ["ps", "sh", "head", "awk", "python", "python3", "bash"]: continue
+                    procs.append({"pid": parts[0], "name": name, "cpu": parts[2], "mem": parts[3]})
+                    if len(procs) >= 5: break
+            self.cached_stats["processes"] = procs
         except: pass
 
 sys_mon = SystemMonitor()

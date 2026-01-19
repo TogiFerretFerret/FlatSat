@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Artemis Engineering Console</title>
+    <!-- Three.js for 3D -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Chart.js for Plots -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         :root { --bg: #050505; --panel: #111; --border: #333; --text: #00ff41; --dim: #00661a; --warn: #ffcc00; --alert: #ff0000; }
@@ -73,6 +78,12 @@
         #lightbox { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 1000; justify-content: center; align-items: center; flex-direction: column; }
         #lightbox img { max-width: 90%; max-height: 85%; border: 2px solid var(--text); box-shadow: 0 0 20px var(--dim); }
         #lightbox-close { margin-top: 10px; color: #fff; cursor: pointer; font-size: 1.2em; text-decoration: underline; }
+        
+        /* 3D Container */
+        #container-3d { width: 100%; height: 150px; background: #000; border: 1px solid var(--border); margin-bottom: 5px; }
+        
+        /* Chart Container */
+        .chart-container { position: relative; height: 100px; width: 100%; margin-bottom: 5px; }
     </style>
 </head>
 <body>
@@ -85,46 +96,25 @@
         <!-- COL 1: DYNAMICS -->
         <div class="col">
             <div class="panel">
-                <h2>Attitude & Motion</h2>
-                <div class="data-row"><span>STATE</span><span class="data-val" id="motion-state">--</span></div>
+                <h2>Attitude (3D)</h2>
+                <div id="container-3d"></div>
                 <div class="data-row"><span>HEADING</span><span class="data-val" id="att-yaw">0°</span></div>
                 <div class="data-row"><span>PITCH</span><span class="data-val" id="att-pitch">0°</span></div>
                 <div class="data-row"><span>ROLL</span><span class="data-val" id="att-roll">0°</span></div>
+            </div>
+            
+            <div class="panel">
+                <h2>Sensors (History)</h2>
+                <div class="chart-container">
+                    <canvas id="chart-accel"></canvas>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>Motion</h2>
+                <div class="data-row"><span>STATE</span><span class="data-val" id="motion-state">--</span></div>
                 <div class="data-row" style="margin-top:5px; border-top:1px solid #333; padding-top:2px;"><span>TOTAL G</span><span class="data-val" id="total-g">1.00</span></div>
                 <div class="data-row"><span>JERK (m/s³)</span><span class="data-val" id="jerk">0.0</span></div>
-            </div>
-            <div class="panel">
-                <h2>Quaternion</h2>
-                <div class="grid-4">
-                    <div class="sensor-box"><span class="lbl">W</span><span class="val" id="qw">0.00</span></div>
-                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="qx">0.00</span></div>
-                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="qy">0.00</span></div>
-                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="qz">0.00</span></div>
-                </div>
-            </div>
-            <div class="panel">
-                <h2>Accelerometer</h2>
-                <div class="grid-3">
-                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="ax">0.0</span></div>
-                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="ay">0.0</span></div>
-                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="az">0.0</span></div>
-                </div>
-            </div>
-            <div class="panel">
-                <h2>Gyroscope</h2>
-                <div class="grid-3">
-                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="gx">0.0</span></div>
-                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="gy">0.0</span></div>
-                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="gz">0.0</span></div>
-                </div>
-            </div>
-            <div class="panel">
-                <h2>Magnetometer</h2>
-                <div class="grid-3">
-                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="mx">0.0</span></div>
-                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="my">0.0</span></div>
-                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="mz">0.0</span></div>
-                </div>
             </div>
         </div>
 
@@ -226,13 +216,69 @@
     </div>
 
     <script>
+        // --- 3D SETUP ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, 240/150, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ alpha: true });
+        renderer.setSize(230, 150);
+        document.getElementById('container-3d').appendChild(renderer.domElement);
+
+        const geometry = new THREE.BoxGeometry();
+        // Colored materials for orientation
+        const materials = [
+            new THREE.MeshBasicMaterial({ color: 0xff0000 }), // Right (Red)
+            new THREE.MeshBasicMaterial({ color: 0xaa0000 }), // Left
+            new THREE.MeshBasicMaterial({ color: 0x00ff00 }), // Top (Green)
+            new THREE.MeshBasicMaterial({ color: 0x00aa00 }), // Bottom
+            new THREE.MeshBasicMaterial({ color: 0x0000ff }), // Front (Blue)
+            new THREE.MeshBasicMaterial({ color: 0x0000aa })  // Back
+        ];
+        const cube = new THREE.Mesh(geometry, materials);
+        scene.add(cube);
+        
+        // Wireframe for visibility
+        const edges = new THREE.EdgesGeometry(geometry);
+        const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffffff }));
+        cube.add(line);
+
+        camera.position.z = 2.5;
+
+        function animate3D() {
+            requestAnimationFrame(animate3D);
+            renderer.render(scene, camera);
+        }
+        animate3D();
+
+        // --- CHART SETUP ---
+        const ctxAccel = document.getElementById('chart-accel').getContext('2d');
+        const chartAccel = new Chart(ctxAccel, {
+            type: 'line',
+            data: {
+                labels: Array(50).fill(''),
+                datasets: [
+                    { label: 'X', data: Array(50).fill(0), borderColor: 'red', borderWidth: 1, pointRadius: 0 },
+                    { label: 'Y', data: Array(50).fill(0), borderColor: 'green', borderWidth: 1, pointRadius: 0 },
+                    { label: 'Z', data: Array(50).fill(0), borderColor: 'blue', borderWidth: 1, pointRadius: 0 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                scales: {
+                    x: { display: false },
+                    y: { grid: { color: '#333' }, ticks: { color: '#888' } }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
+
+        // --- MAIN UI ---
         const ui = {
             conn: document.getElementById('conn-status'),
-            ax: document.getElementById('ax'), ay: document.getElementById('ay'), az: document.getElementById('az'),
-            gx: document.getElementById('gx'), gy: document.getElementById('gy'), gz: document.getElementById('gz'),
-            mx: document.getElementById('mx'), my: document.getElementById('my'), mz: document.getElementById('mz'),
-            qw: document.getElementById('qw'), qx: document.getElementById('qx'), qy: document.getElementById('qy'), qz: document.getElementById('qz'),
-            yaw: document.getElementById('att-yaw'), pitch: document.getElementById('att-pitch'), roll: document.getElementById('att-roll'),
+            att_yaw: document.getElementById('att-yaw'), 
+            att_pitch: document.getElementById('att-pitch'), 
+            att_roll: document.getElementById('att-roll'),
             total_g: document.getElementById('total-g'), jerk: document.getElementById('jerk'), motion_state: document.getElementById('motion-state'),
             cam_fps: document.getElementById('cam-fps'), cam_exp: document.getElementById('cam-exp'),
             cam_gain: document.getElementById('cam-gain'), cam_dgain: document.getElementById('cam-dgain'),
@@ -255,8 +301,6 @@
         evtSource.onmessage = (e) => {
             try {
                 pendingData = JSON.parse(e.data);
-                console.log("Telemetry received:", pendingData); // DEBUG LOGGING
-                
                 requestAnimationFrame(() => {
                     if(pendingData) {
                         updateDisplay(pendingData);
@@ -271,9 +315,32 @@
             ui.conn.innerText = d.status || "OFFLINE";
             ui.conn.style.color = (d.status === "ONLINE") ? "#00ff41" : "red";
 
-            if (d.accel) { ui.ax.innerText = d.accel.x.toFixed(2); ui.ay.innerText = d.accel.y.toFixed(2); ui.az.innerText = d.accel.z.toFixed(2); }
+            // Update 3D Cube (Use quaternion from backend if available, else euler)
+            // Backend sends [w, x, y, z], Three.js expects (x, y, z, w)
+            // Note: Coordinate mapping might be needed depending on IMU orientation
+            if (d.attitude) {
+                // Fallback to Euler if quaternion unavailable/tricky
+                // Convert degrees to radians
+                const roll = d.attitude.roll * (Math.PI/180);
+                const pitch = d.attitude.pitch * (Math.PI/180);
+                const yaw = d.attitude.yaw * (Math.PI/180);
+                cube.rotation.set(pitch, yaw, roll); // Order might need tuning based on mount
+                
+                ui.att_yaw.innerText = d.attitude.yaw.toFixed(0) + "°";
+                ui.att_pitch.innerText = d.attitude.pitch.toFixed(0) + "°";
+                ui.att_roll.innerText = d.attitude.roll.toFixed(0) + "°";
+            }
+
+            // Update Chart
+            if (d.accel) {
+                chartAccel.data.datasets[0].data.shift(); chartAccel.data.datasets[0].data.push(d.accel.x);
+                chartAccel.data.datasets[1].data.shift(); chartAccel.data.datasets[1].data.push(d.accel.y);
+                chartAccel.data.datasets[2].data.shift(); chartAccel.data.datasets[2].data.push(d.accel.z);
+                chartAccel.update('none'); // Efficient update
+            }
+
+            // Dynamics
             if (d.gyro) { 
-                ui.gx.innerText = d.gyro.x.toFixed(1); ui.gy.innerText = d.gyro.y.toFixed(1); ui.gz.innerText = d.gyro.z.toFixed(1); 
                 const g_mag = Math.sqrt(d.gyro.x**2 + d.gyro.y**2 + d.gyro.z**2);
                 let state = "STATIONARY"; let color = "#00ff41";
                 if (g_mag > 150) { state = "TUMBLING"; color = "#ff0000"; }
@@ -281,12 +348,10 @@
                 else if (g_mag > 2) { state = "STABLE"; color = "#0088ff"; }
                 ui.motion_state.innerText = state; ui.motion_state.style.color = color;
             }
-            if (d.mag) { ui.mx.innerText = d.mag.x.toFixed(0); ui.my.innerText = d.mag.y.toFixed(0); ui.mz.innerText = d.mag.z.toFixed(0); }
-            if (d.quaternion) { ui.qw.innerText = d.quaternion[0].toFixed(2); ui.qx.innerText = d.quaternion[1].toFixed(2); ui.qy.innerText = d.quaternion[2].toFixed(2); ui.qz.innerText = d.quaternion[3].toFixed(2); }
-            if (d.attitude) { ui.yaw.innerText = d.attitude.yaw.toFixed(0)+"°"; ui.pitch.innerText = d.attitude.pitch.toFixed(0)+"°"; ui.roll.innerText = d.attitude.roll.toFixed(0)+"°"; }
             if (d.total_g) ui.total_g.innerText = d.total_g;
             if (d.jerk !== undefined) ui.jerk.innerText = d.jerk.toFixed(1);
 
+            // Camera Metadata
             if (d.cam_meta) {
                 if (d.cam_meta.res && d.cam_meta.res.includes('x')) {
                     ui.cam_res.innerText = d.cam_meta.res; ui.cam_res.style.color = "#fff";
@@ -303,6 +368,7 @@
                 }
             }
 
+            // Systems
             if (d.sys) {
                 ui.cpu_volts.innerText = d.sys.cpu_volts ? d.sys.cpu_volts.toFixed(2) + " V" : "--";
                 ui.cpu_clock.innerText = d.sys.cpu_clock + " MHz";
@@ -319,7 +385,6 @@
                 }
                 
                 ui.wifi_retry.innerText = d.sys.wifi_retry || 0;
-                // SAFE ACCESS: prevent crash if element missing
                 if(ui.wifi_missed) ui.wifi_missed.innerText = d.sys.wifi_missed || 0;
                 ui.ip_addr.innerText = d.sys.ip_addr || "--";
                 
@@ -382,7 +447,6 @@
             btnLong.classList.remove('active');
             btnLong.innerText = "LONG EXP (HOLD)";
             
-            // Only trigger if held for > 0.3s to avoid accidental clicks
             if (duration > 0.3) {
                 console.log(`Taking Long Exposure: ${duration.toFixed(2)}s`);
                 snap(duration);
@@ -392,7 +456,6 @@
         async function snap(exposure=0) { 
             try { 
                 let url = '/snapshot';
-                // Add exposure param if > 0
                 if (exposure > 0) url += `?exposure=${exposure.toFixed(2)}`;
                 
                 await fetch(url, {method:'POST'}); 
