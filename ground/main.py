@@ -17,11 +17,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CAPTURE_DIR = os.path.join(BASE_DIR, "captures")
 if not os.path.exists(CAPTURE_DIR): os.makedirs(CAPTURE_DIR)
 
-# Initialize Flask with specific folder paths if needed, or defaults
 app = Flask(__name__, template_folder="web/templates", static_folder="web/static")
 
-# --- FLASK CONFIG ---
-# CRITICAL: Disable buffering to ensure real-time telemetry flow
 @app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
@@ -52,9 +49,7 @@ def bt_client_thread():
             while True:
                 header = s.recv(8)
                 if not header: break
-                
                 type_bytes, length = struct.unpack("!4sI", header)
-                
                 payload = b''
                 while len(payload) < length:
                     chunk = s.recv(length - len(payload))
@@ -66,7 +61,6 @@ def bt_client_thread():
                     new_data["status"] = "ONLINE"
                     with data_lock: telemetry_data = new_data
                 except json.JSONDecodeError as e:
-                    print(f"[GS] JSON Error: {e}")
                     pass
                     
         except Exception as e:
@@ -88,25 +82,21 @@ def index():
 
 @app.route('/api/telemetry')
 def api_telemetry():
-    """JSON API for Polling (Restored)"""
     with data_lock:
         return jsonify(telemetry_data)
 
 @app.route('/telemetry_stream')
 def telemetry_stream():
-    """SSE Bridge: Pushes BT data to Browser"""
     def event_stream():
         while True:
             with data_lock:
                 json_data = json.dumps(telemetry_data)
             yield f"data: {json_data}\n\n"
-            time.sleep(0.25) # 4Hz
-
+            time.sleep(0.25)
     return Response(event_stream(), mimetype='text/event-stream')
 
 @app.route('/stream')
 def proxy_video():
-    """Proxy MJPEG from Pi"""
     try:
         req = requests.get(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/stream", stream=True, timeout=2)
         return Response(stream_with_context(req.iter_content(chunk_size=4096)), content_type=req.headers['Content-Type'])
@@ -114,13 +104,11 @@ def proxy_video():
 
 @app.route('/snapshot', methods=['POST'])
 def proxy_snapshot():
-    """Trigger snapshot on Pi, save locally on GS"""
+    """Trigger snapshot, Save JPG + JSON Metadata"""
     try:
-        # 1. Extract params from Dashboard request (e.g. ?exposure=1.5)
         exposure = request.args.get('exposure', 0.0)
         
-        # 2. Forward to Pi with params
-        # Timeout increased to 20s to allow for long exposures + processing
+        # Call Node
         resp = requests.post(
             f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/snapshot", 
             params={'exposure': exposure},
@@ -128,12 +116,41 @@ def proxy_snapshot():
         )
         
         if resp.status_code == 200:
-            fn = f"snap_{int(time.time())}.jpg"
-            full_path = os.path.join(CAPTURE_DIR, fn)
-            with open(full_path, 'wb') as f:
+            timestamp = int(time.time())
+            base_fn = f"snap_{timestamp}"
+            
+            # 1. Save Image
+            img_fn = f"{base_fn}.jpg"
+            with open(os.path.join(CAPTURE_DIR, img_fn), 'wb') as f:
                 f.write(resp.content)
-            print(f"[GS] Saved {fn} (Exp: {exposure}s)")
-            return jsonify({"status": "success", "file": fn})
+            
+            # 2. Extract Headers & Save JSON Metadata (For Splatting)
+            pose_str = resp.headers.get('X-Pose', '1,0,0,0')
+            pose = [float(x) for x in pose_str.split(',')]
+            
+            accel_str = resp.headers.get('X-Accel', '0,0,0')
+            accel_list = [float(x) for x in accel_str.split(',')]
+            accel = {"x": accel_list[0], "y": accel_list[1], "z": accel_list[2]}
+            
+            metadata = {
+                "image": img_fn,
+                "timestamp": timestamp,
+                "exposure_sec": float(exposure),
+                "pose_quaternion_wxyz": pose,
+                "accel_ms2": accel
+            }
+            
+            with open(os.path.join(CAPTURE_DIR, f"{base_fn}.json"), 'w') as f:
+                json.dump(metadata, f, indent=4)
+
+            print(f"[GS] Saved {img_fn} + Metadata")
+            
+            # Return pose to UI so it can draw the ghost
+            return jsonify({
+                "status": "success", 
+                "file": img_fn,
+                "pose": pose 
+            })
             
     except Exception as e:
         print(f"[GS] Snapshot Failed: {e}")
@@ -141,13 +158,10 @@ def proxy_snapshot():
 
 @app.route('/api/captures')
 def list_captures():
-    """List images for the gallery"""
     try:
-        # Case-insensitive extension check
         files = sorted([f for f in os.listdir(CAPTURE_DIR) if f.lower().endswith(('.jpg', '.jpeg'))], reverse=True)
         return jsonify(files)
     except Exception as e:
-        print(f"[GS] List Error: {e}")
         return jsonify([])
 
 @app.route('/captures/<path:filename>')

@@ -9,7 +9,7 @@ import sys
 import subprocess
 import math
 import shutil
-from flask import Flask, Response, send_file, request
+from flask import Flask, Response, send_file, request, make_response
 
 # --- HARDWARE IMPORTS ---
 try:
@@ -35,7 +35,7 @@ class SystemMonitor:
         print("[SysMon] Initializing System Monitor...")
         self.lock = threading.Lock()
         
-        # FULL DEFAULTS (The "Motherflippin Data" Foundation)
+        # FULL DEFAULTS
         self.cached_stats = {
             "cpu_volts": 0.0, "cpu_clock": 0, "throttle_hex": "0x0", "throttle_flags": ["INIT"],
             "gpu_mem": "0M", 
@@ -113,14 +113,11 @@ class SystemMonitor:
             return full_stats
 
     def _update_slow_stats(self):
-        # Internal helper - runs inside lock
         try:
             res = subprocess.check_output(["vcgencmd", "measure_volts", "core"], stderr=subprocess.DEVNULL)
             self.cached_stats["cpu_volts"] = float(res.decode().split("=")[1].replace("V\n", ""))
-            
             res = subprocess.check_output(["vcgencmd", "measure_clock", "arm"], stderr=subprocess.DEVNULL)
             self.cached_stats["cpu_clock"] = int(int(res.decode().split("=")[1]) / 1000000)
-            
             res = subprocess.check_output(["vcgencmd", "get_throttled"], stderr=subprocess.DEVNULL)
             raw_hex = res.decode().split("=")[1].strip()
             self.cached_stats["throttle_hex"] = raw_hex
@@ -164,7 +161,7 @@ class SystemMonitor:
                             self.cached_stats["wifi_dbm"] = int(float(parts[3]))
         except: pass
 
-        # --- PROCESS LIST (Moved here from get_stats) ---
+        # Process List
         try:
             cmd = ["ps", "-Ao", "pid,comm,pcpu,pmem", "--sort=-pcpu"]
             output = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode()
@@ -188,7 +185,7 @@ def calculate_attitude(accel, mag):
     roll = math.atan2(ay, az)
     pitch = math.atan2(-ax, math.sqrt(ay*ay + az*az))
     mx, my, mz = mag['x'], mag['y'], mag['z']
-    # Tilt compensation
+    
     roll_rad = math.atan2(ay, az)
     pitch_rad = math.atan2(-ax, math.sqrt(ay*ay + az*az))
     mx_comp = mx * math.cos(pitch_rad) + mz * math.sin(pitch_rad)
@@ -234,7 +231,6 @@ def assemble_telemetry():
         ax, ay, az = data["accel"]["x"], data["accel"]["y"], data["accel"]["z"]
         data["total_g"] = round(math.sqrt(ax**2 + ay**2 + az**2) / 9.81, 2)
         
-        # Jerk Calc
         now = time.time()
         dt = now - last_imu_time
         if dt > 0:
@@ -244,23 +240,20 @@ def assemble_telemetry():
         last_accel = {"x":ax, "y":ay, "z":az}
         last_imu_time = now
 
-    # 2. System Data (The Critical Part)
     data["sys"] = sys_mon.get_stats()
     data["sys"]["active_threads"] = threading.active_count()
     if data.get("temp"): data["sys"]["imu_temp"] = round(data["temp"], 1)
     
-    # Debug Print every ~4 seconds (assuming 5Hz calls)
     if frame_counter % 20 == 0:
         s = data["sys"]
         print(f"[Telem] CPU:{s['cpu_load']}% Temp:{s['cpu_temp']}C Mem:{s['ram_percent']}% WiFi:{s['wifi_dbm']}dBm")
 
-    # 3. Camera Metadata
     try:
         meta = cam.picam2.capture_metadata()
         if meta:
             data["cam_meta"] = {
                 "res": f"{CURRENT_RES[0]}x{CURRENT_RES[1]}",
-                "fps": 0, # Simplify
+                "fps": 0,
                 "exp_ms": round(meta.get("ExposureTime", 0) / 1000.0, 2),
                 "a_gain": round(meta.get("AnalogueGain", 1.0), 2),
                 "d_gain": round(meta.get("DigitalGain", 1.0), 2),
@@ -275,13 +268,11 @@ def assemble_telemetry():
 
 app = Flask(__name__)
 
-# GLOBAL CORS HEADER
 @app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-    # Prevent buffering
     response.headers.add('X-Accel-Buffering', 'no')
     response.headers.add('Cache-Control', 'no-cache')
     return response
@@ -314,7 +305,6 @@ class HybridNode:
                 threading.Thread(target=self.listen_commands, args=(client,), daemon=True).start()
 
                 while self.running:
-                    # Heartbeat
                     if time.time() - self.last_cam_activity > 0.5:
                         try:
                             with cam_lock: cam.picam2.capture_file(io.BytesIO(), format="jpeg")
@@ -329,7 +319,7 @@ class HybridNode:
                     try: client.sendall(header + msg)
                     except: break
                     
-                    time.sleep(0.2) # 5Hz
+                    time.sleep(0.2) 
             except: time.sleep(1)
 
     def listen_commands(self, sock):
@@ -346,21 +336,15 @@ def stream():
     def generate():
         stream = io.BytesIO()
         while True:
-            # Lock removed to prevent blocking high-speed stream
             try:
                 cam.picam2.capture_file(stream, format="jpeg")
                 if 'node' in globals(): node.last_cam_activity = time.time()
-                
                 stream.seek(0)
                 frame = stream.read()
-                
-                # Reset buffer to prevent memory leak
                 stream.seek(0)
                 stream.truncate()
-                
                 yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-            except:
-                pass
+            except: pass
             time.sleep(0.03)
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
@@ -374,19 +358,25 @@ def telemetry_stream():
                 yield f"data: {json.dumps(data)}\n\n"
             except Exception as e:
                 print(f"[SSE] Stream Error: {e}")
-                
             time.sleep(0.25)
     return Response(event_stream(), mimetype='text/event-stream')
 
 @app.route('/snapshot', methods=['POST'])
 def snapshot():
+    """Capture High Res + Return Pose Metadata in Headers"""
     stream = io.BytesIO()
     exposure_sec = request.args.get('exposure', default=0.0, type=float)
     
     with cam_lock:
         print(f"[Cam] Snap Request (Exp: {exposure_sec}s)")
-        configure_camera(CAPTURE_RES[0], CAPTURE_RES[1])
         
+        # 1. Grab Telemetry State NOW
+        data = assemble_telemetry()
+        quat = data.get("quaternion", [1,0,0,0])
+        accel = data.get("accel", {"x":0,"y":0,"z":0})
+        
+        # 2. Config & Shoot
+        configure_camera(CAPTURE_RES[0], CAPTURE_RES[1])
         if exposure_sec > 0:
             us = int(exposure_sec * 1000000)
             cam.picam2.set_controls({"FrameDurationLimits": (us+10000, us+10000), "ExposureTime": us})
@@ -401,7 +391,13 @@ def snapshot():
         if 'node' in globals(): node.last_cam_activity = time.time()
         
     stream.seek(0)
-    return send_file(stream, mimetype='image/jpeg', download_name='snap.jpg')
+    
+    # 3. Create Response with Headers
+    response = make_response(send_file(stream, mimetype='image/jpeg', download_name='snap.jpg'))
+    response.headers['X-Pose'] = ",".join(map(str, quat))
+    response.headers['X-Accel'] = f"{accel['x']},{accel['y']},{accel['z']}"
+    
+    return response
 
 if __name__ == "__main__":
     node = HybridNode()
