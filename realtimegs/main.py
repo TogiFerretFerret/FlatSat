@@ -9,24 +9,26 @@ import sys
 import subprocess
 import math
 import shutil
-from flask import Flask, Response, send_file, request, make_response
+from flask import Flask, Response, send_file, request, make_response, jsonify
 
 # --- HARDWARE IMPORTS ---
 try:
     from hardware.camera import CameraSystem
     from hardware.imu import IMU
+    from hardware.power import PiSugar
 except ImportError:
     print("Hardware libraries missing. Ensure hardware/ folder exists.")
     sys.exit(1)
 
 # --- CONFIG ---
 HTTP_PORT = 8000 
-STREAM_RES = (640, 480)     # Fast, low lag
-CAPTURE_RES = (2592, 1944)  # 5MP High Quality
+STREAM_RES = (640, 480)     
+CAPTURE_RES = (2592, 1944)  
 
 # Initialize Global Hardware
 cam = CameraSystem()
 imu = IMU()
+power = PiSugar()
 cam_lock = threading.Lock()
 
 # --- SYSTEM MONITOR ---
@@ -35,7 +37,6 @@ class SystemMonitor:
         print("[SysMon] Initializing System Monitor...")
         self.lock = threading.Lock()
         
-        # FULL DEFAULTS
         self.cached_stats = {
             "cpu_volts": 0.0, "cpu_clock": 0, "throttle_hex": "0x0", "throttle_flags": ["INIT"],
             "gpu_mem": "0M", 
@@ -88,9 +89,7 @@ class SystemMonitor:
         except: pass
 
     def get_stats(self):
-        """Returns the COMPLETE blended stats payload safely."""
         with self.lock:
-            # 1. Update Fast Stats (Network/CPU Load)
             try:
                 self.update_network_stats()
                 with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
@@ -100,12 +99,10 @@ class SystemMonitor:
                 cpu_temp = 0
                 cpu_load = 0
 
-            # 2. Update Slow Stats (Hardware/Disk/Processes) every 2s
             if time.time() - self.last_slow_update > 2.0:
                 self._update_slow_stats()
                 self.last_slow_update = time.time()
 
-            # 3. Merge
             full_stats = self.cached_stats.copy()
             full_stats.update(self.net_stats)
             full_stats["cpu_temp"] = cpu_temp
@@ -145,7 +142,6 @@ class SystemMonitor:
             with open("/proc/uptime", "r") as f:
                 self.cached_stats["uptime_sys"] = int(float(f.read().split()[0]))
             self.cached_stats["uptime_script"] = int(time.time() - self.start_time)
-            
             res = subprocess.check_output(["hostname", "-I"], stderr=subprocess.DEVNULL)
             self.cached_stats["ip_addr"] = res.decode().strip().split(" ")[0]
         except: pass
@@ -161,7 +157,6 @@ class SystemMonitor:
                             self.cached_stats["wifi_dbm"] = int(float(parts[3]))
         except: pass
 
-        # Process List
         try:
             cmd = ["ps", "-Ao", "pid,comm,pcpu,pmem", "--sort=-pcpu"]
             output = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode()
@@ -244,9 +239,13 @@ def assemble_telemetry():
     data["sys"]["active_threads"] = threading.active_count()
     if data.get("temp"): data["sys"]["imu_temp"] = round(data["temp"], 1)
     
+    # ADDED: Battery Data
+    data["power"] = power.get_data()
+
     if frame_counter % 20 == 0:
         s = data["sys"]
-        print(f"[Telem] CPU:{s['cpu_load']}% Temp:{s['cpu_temp']}C Mem:{s['ram_percent']}% WiFi:{s['wifi_dbm']}dBm")
+        p = data["power"]
+        print(f"[Telem] CPU:{s['cpu_load']}% | Bat: {p['level']}% ({p['voltage']}V)")
 
     try:
         meta = cam.picam2.capture_metadata()
@@ -268,14 +267,69 @@ def assemble_telemetry():
 
 app = Flask(__name__)
 
+# GLOBAL CORS HEADER
 @app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    # Prevent buffering
     response.headers.add('X-Accel-Buffering', 'no')
     response.headers.add('Cache-Control', 'no-cache')
     return response
+
+# --- HARDWARE CONTROL ROUTES ---
+
+@app.route('/api/clock', methods=['POST'])
+def set_clock():
+    """Set CPU Governor or Max Frequency"""
+    try:
+        data = request.json
+        mode = data.get('mode') # performance, powersave, ondemand
+        speed = data.get('speed') # Hz (e.g. 1500000)
+        
+        # 1. Set Governor Mode
+        if mode in ['performance', 'powersave', 'ondemand', 'schedutil', 'conservative']:
+            # Try via sysfs first (no dependencies)
+            base = "/sys/devices/system/cpu"
+            for cpu in os.listdir(base):
+                if cpu.startswith("cpu") and cpu[3:].isdigit():
+                    gov_path = os.path.join(base, cpu, "cpufreq", "scaling_governor")
+                    if os.path.exists(gov_path):
+                        with open(gov_path, "w") as f:
+                            f.write(mode)
+            print(f"[Sys] Set CPU Governor to {mode}")
+            return jsonify({"status": "ok", "mode": mode})
+            
+        # 2. Set Max Frequency (if specific speed requested)
+        # Note: Requires sudo access or root
+        if speed and int(speed) > 0:
+            subprocess.run(["sudo", "cpufreq-set", "-u", str(speed)])
+            return jsonify({"status": "ok", "speed": speed})
+            
+        return jsonify({"status": "error", "msg": "Invalid mode or speed"}), 400
+    except Exception as e:
+        return jsonify({"status": "error", "msg": str(e)}), 500
+
+@app.route('/api/i2c', methods=['POST'])
+def set_i2c():
+    """Set I2C Bus Baudrate using dtparam"""
+    try:
+        data = request.json
+        baud = data.get('baudrate') # e.g., 400000
+        
+        if baud and int(baud) > 0:
+            # Note: This is dynamic and might not persist across reboots or full re-inits
+            # Standard speeds: 100000, 400000, 1000000
+            cmd = ["sudo", "dtparam", f"i2c_arm_baudrate={baud}"]
+            subprocess.run(cmd, check=True)
+            print(f"[Sys] Set I2C Baudrate to {baud}")
+            return jsonify({"status": "ok", "baudrate": baud})
+            
+        return jsonify({"status": "error", "msg": "Invalid baudrate"}), 400
+    except Exception as e:
+        print(f"[Sys] I2C Error: {e}")
+        return jsonify({"status": "error", "msg": str(e)}), 500
 
 class HybridNode:
     def __init__(self):
@@ -305,6 +359,7 @@ class HybridNode:
                 threading.Thread(target=self.listen_commands, args=(client,), daemon=True).start()
 
                 while self.running:
+                    # Heartbeat
                     if time.time() - self.last_cam_activity > 0.5:
                         try:
                             with cam_lock: cam.picam2.capture_file(io.BytesIO(), format="jpeg")
@@ -319,7 +374,7 @@ class HybridNode:
                     try: client.sendall(header + msg)
                     except: break
                     
-                    time.sleep(0.2) 
+                    time.sleep(0.2) # 5Hz
             except: time.sleep(1)
 
     def listen_commands(self, sock):
@@ -336,15 +391,21 @@ def stream():
     def generate():
         stream = io.BytesIO()
         while True:
+            # Lock removed to prevent blocking high-speed stream
             try:
                 cam.picam2.capture_file(stream, format="jpeg")
                 if 'node' in globals(): node.last_cam_activity = time.time()
+                
                 stream.seek(0)
                 frame = stream.read()
+                
+                # Reset buffer to prevent memory leak
                 stream.seek(0)
                 stream.truncate()
+                
                 yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-            except: pass
+            except:
+                pass
             time.sleep(0.03)
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
@@ -358,25 +419,23 @@ def telemetry_stream():
                 yield f"data: {json.dumps(data)}\n\n"
             except Exception as e:
                 print(f"[SSE] Stream Error: {e}")
+                
             time.sleep(0.25)
     return Response(event_stream(), mimetype='text/event-stream')
 
 @app.route('/snapshot', methods=['POST'])
 def snapshot():
-    """Capture High Res + Return Pose Metadata in Headers"""
     stream = io.BytesIO()
     exposure_sec = request.args.get('exposure', default=0.0, type=float)
     
     with cam_lock:
         print(f"[Cam] Snap Request (Exp: {exposure_sec}s)")
-        
-        # 1. Grab Telemetry State NOW
         data = assemble_telemetry()
         quat = data.get("quaternion", [1,0,0,0])
         accel = data.get("accel", {"x":0,"y":0,"z":0})
         
-        # 2. Config & Shoot
         configure_camera(CAPTURE_RES[0], CAPTURE_RES[1])
+        
         if exposure_sec > 0:
             us = int(exposure_sec * 1000000)
             cam.picam2.set_controls({"FrameDurationLimits": (us+10000, us+10000), "ExposureTime": us})
@@ -391,12 +450,9 @@ def snapshot():
         if 'node' in globals(): node.last_cam_activity = time.time()
         
     stream.seek(0)
-    
-    # 3. Create Response with Headers
     response = make_response(send_file(stream, mimetype='image/jpeg', download_name='snap.jpg'))
     response.headers['X-Pose'] = ",".join(map(str, quat))
     response.headers['X-Accel'] = f"{accel['x']},{accel['y']},{accel['z']}"
-    
     return response
 
 if __name__ == "__main__":
