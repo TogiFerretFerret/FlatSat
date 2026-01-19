@@ -96,7 +96,10 @@
         <!-- COL 1: DYNAMICS -->
         <div class="col">
             <div class="panel">
-                <h2>Orientation (3D)</h2>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <h2>Orientation (3D)</h2>
+                    <button class="badge" style="cursor:pointer; border:1px solid #666; font-size:0.7em;" onclick="calibrateIMU()">RESET REF</button>
+                </div>
                 <div id="container-3d"></div>
                 <div class="data-row"><span>HEADING</span><span class="data-val" id="att-yaw">0°</span></div>
                 <div class="data-row"><span>PITCH</span><span class="data-val" id="att-pitch">0°</span></div>
@@ -141,6 +144,13 @@
                     <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="my">0.0</span></div>
                     <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="mz">0.0</span></div>
                 </div>
+            </div>
+
+            <div class="panel">
+                <h2>Motion</h2>
+                <div class="data-row"><span>STATE</span><span class="data-val" id="motion-state">--</span></div>
+                <div class="data-row" style="margin-top:5px; border-top:1px solid #333; padding-top:2px;"><span>TOTAL G</span><span class="data-val" id="total-g">1.00</span></div>
+                <div class="data-row"><span>JERK (m/s³)</span><span class="data-val" id="jerk">0.0</span></div>
             </div>
         </div>
 
@@ -244,10 +254,6 @@
     <script>
         // --- 3D SETUP ---
         const scene = new THREE.Scene();
-        // Light grey grid helper background for reference
-        // const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
-        // scene.add(gridHelper);
-
         const camera = new THREE.PerspectiveCamera(50, 240/180, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
         renderer.setSize(230, 180);
@@ -260,40 +266,38 @@
         dirLight.position.set(5, 10, 7);
         scene.add(dirLight);
 
-        // --- SATELLITE MODEL GROUP ---
-        const satellite = new THREE.Group();
-        scene.add(satellite);
-
-        // 1. Main Body (Gold Box)
-        const bodyGeo = new THREE.BoxGeometry(1.2, 1.2, 1.2);
-        const bodyMat = new THREE.MeshPhongMaterial({ color: 0xDAA520, shininess: 50 }); // Goldenrod
-        const body = new THREE.Mesh(bodyGeo, bodyMat);
-        satellite.add(body);
-
-        // 2. Solar Panels (Blue, Wing-like)
-        const panelGeo = new THREE.BoxGeometry(0.1, 1.0, 2.5);
-        const panelMat = new THREE.MeshPhongMaterial({ color: 0x1E90FF, shininess: 80 }); // DodgerBlue
+        // --- CUBE MODEL ---
+        // Materials mapping:
+        // 0: Right (+x) - Red
+        // 1: Left (-x) - Dark Red
+        // 2: Top (+y) - Green
+        // 3: Bottom (-y) - Gray (CAMERA)
+        // 4: Front (+z) - Blue (PORTS)
+        // 5: Back (-z) - Dark Blue
+        const materials = [
+            new THREE.MeshPhongMaterial({ color: 0xff4444 }), // Right
+            new THREE.MeshPhongMaterial({ color: 0xaa2222 }), // Left
+            new THREE.MeshPhongMaterial({ color: 0x44ff44 }), // Top
+            new THREE.MeshPhongMaterial({ color: 0x888888 }), // Bottom (Camera)
+            new THREE.MeshPhongMaterial({ color: 0x4444ff }), // Front (Ports)
+            new THREE.MeshPhongMaterial({ color: 0x2222aa })  // Back
+        ];
         
-        const panelLeft = new THREE.Mesh(panelGeo, panelMat);
-        panelLeft.position.set(-1.0, 0, 0); // Extend Left (-X)
-        satellite.add(panelLeft);
+        const geometry = new THREE.BoxGeometry(1.5, 1.5, 1.5);
+        const cube = new THREE.Mesh(geometry, materials);
+        scene.add(cube);
 
-        const panelRight = new THREE.Mesh(panelGeo, panelMat);
-        panelRight.position.set(1.0, 0, 0); // Extend Right (+X)
-        satellite.add(panelRight);
-
-        // 3. Camera Lens / Direction Indicator (Dark Grey Cylinder on Front)
-        const lensGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 32);
-        const lensMat = new THREE.MeshPhongMaterial({ color: 0x333333 });
+        // Visual Indicators
+        // 1. Camera Lens on Bottom (-Y)
+        const lensGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.2, 32);
+        const lensMat = new THREE.MeshPhongMaterial({ color: 0x222222 }); // Dark lens
         const lens = new THREE.Mesh(lensGeo, lensMat);
-        lens.rotation.x = Math.PI / 2; // Face forward
-        lens.position.z = 0.65; // Stick out of the front face (+Z)
-        satellite.add(lens);
+        lens.position.y = -0.8; // Stick out of bottom
+        cube.add(lens);
 
-        // 4. Axes Helper (Attached to model so it rotates with it)
-        // Red = X (Right), Green = Y (Up), Blue = Z (Forward)
+        // 2. Axes Helper (Sticking out)
         const axesHelper = new THREE.AxesHelper(2.5);
-        satellite.add(axesHelper);
+        cube.add(axesHelper);
 
         camera.position.set(0, 2, 4);
         camera.lookAt(0, 0, 0);
@@ -364,6 +368,10 @@
         const evtSource = new EventSource("/telemetry_stream");
         let pendingData = null;
         
+        // Calibration State
+        let offsetQuaternion = new THREE.Quaternion(); // Identity by default
+        let lastReceivedQuaternion = new THREE.Quaternion();
+
         evtSource.onmessage = (e) => {
             try {
                 pendingData = JSON.parse(e.data);
@@ -377,31 +385,42 @@
         };
         evtSource.onerror = () => { ui.conn.innerText = "RECONNECTING..."; ui.conn.style.color = "orange"; };
 
+        function calibrateIMU() {
+            // Reset logic: Make current orientation the new "Identity"
+            // Desired (Identity) = Offset * Current
+            // Offset = Current^-1
+            offsetQuaternion.copy(lastReceivedQuaternion).invert();
+            console.log("Calibration set. Offset:", offsetQuaternion);
+        }
+
         function updateDisplay(d) {
             ui.conn.innerText = d.status || "OFFLINE";
             ui.conn.style.color = (d.status === "ONLINE") ? "#00ff41" : "red";
 
-            // Update 3D Cube (Use quaternion from backend if available, else euler)
+            // Update 3D Cube with Calibration
             if (d.quaternion) {
-                // Backend sends [w, x, y, z]. Three.js needs (x, y, z, w).
                 const q = d.quaternion;
-                const targetQuaternion = new THREE.Quaternion(q[1], q[2], q[3], q[0]);
+                // Store raw for calibration logic
+                lastReceivedQuaternion.set(q[1], q[2], q[3], q[0]); // x, y, z, w
                 
-                // SLERP for smoothness (Spherical Linear Interpolation)
-                satellite.quaternion.slerp(targetQuaternion, 0.5);
+                // Calculate display quaternion: offset * raw
+                const displayQ = offsetQuaternion.clone().multiply(lastReceivedQuaternion);
                 
-                // Update Text
+                // SLERP for smoothness
+                cube.quaternion.slerp(displayQ, 0.5);
+                
+                // Update Text (Raw values)
                 if(ui.qw) ui.qw.innerText = q[0].toFixed(3);
                 if(ui.qx) ui.qx.innerText = q[1].toFixed(3);
                 if(ui.qy) ui.qy.innerText = q[2].toFixed(3);
                 if(ui.qz) ui.qz.innerText = q[3].toFixed(3);
             } 
             else if (d.attitude) {
-                // Fallback to Euler if quaternion unavailable
+                // Fallback
                 const roll = d.attitude.roll * (Math.PI/180);
                 const pitch = d.attitude.pitch * (Math.PI/180);
                 const yaw = d.attitude.yaw * (Math.PI/180);
-                satellite.rotation.set(pitch, yaw, roll);
+                cube.rotation.set(pitch, yaw, roll);
             }
 
             if (d.attitude) {
@@ -412,21 +431,18 @@
 
             // Update Chart & Raw Accel
             if (d.accel) {
-                // Update text values
                 ui.ax.innerText = d.accel.x.toFixed(2);
                 ui.ay.innerText = d.accel.y.toFixed(2);
                 ui.az.innerText = d.accel.z.toFixed(2);
 
-                // Update chart
                 chartAccel.data.datasets[0].data.shift(); chartAccel.data.datasets[0].data.push(d.accel.x);
                 chartAccel.data.datasets[1].data.shift(); chartAccel.data.datasets[1].data.push(d.accel.y);
                 chartAccel.data.datasets[2].data.shift(); chartAccel.data.datasets[2].data.push(d.accel.z);
-                chartAccel.update('none'); // Efficient update
+                chartAccel.update('none'); 
             }
 
             // Raw Gyro & Dynamics
             if (d.gyro) { 
-                // Update text values
                 ui.gx.innerText = d.gyro.x.toFixed(1);
                 ui.gy.innerText = d.gyro.y.toFixed(1);
                 ui.gz.innerText = d.gyro.z.toFixed(1);
