@@ -205,8 +205,8 @@
                 <div class="bar-bg" style="margin-top:-2px; margin-bottom:5px;"><div id="bar-bat" class="bar-fill" style="width:0%"></div></div>
                 <div class="data-row"><span>BAT VOLTS</span><span class="data-val" id="bat-volts">0.00 V</span></div>
                 
-                <!-- NEW INPUT POWER ROW -->
-                <div class="data-row"><span>INPUT (SOLAR)</span><span class="data-val" id="bat-input">-- W</span></div>
+                <!-- INPUT ROW (VOLTS & WATTS) -->
+                <div class="data-row"><span>INPUT (SOLAR)</span><span class="data-val" id="bat-input">-- V / -- W</span></div>
                 
                 <div class="data-row"><span>BAT TEMP</span><span class="data-val" id="bat-temp">0°C</span></div>
                 <div class="data-row" style="margin-bottom:8px;"><span>PLUGGED IN</span><span class="data-val" id="bat-plugged">NO</span></div>
@@ -631,9 +631,24 @@
                 if(ui.bat_level) ui.bat_level.innerText = d.power.level + "%";
                 if(ui.bat_volts) ui.bat_volts.innerText = d.power.voltage + " V";
                 
-                // Show Calculated Input Power or --
+                // Show Calculated Input Voltage AND Watts
                 if(ui.bat_input) {
-                    ui.bat_input.innerText = d.power.watts > 0 ? d.power.watts + " W" : (d.power.plugged ? "LOW" : "--");
+                    if (d.power.plugged) {
+                        const volts = d.power.input_est || 5.0; // Fallback
+                        const watts = d.power.watts || 0;
+                        ui.bat_input.innerText = `${volts} V / ${watts} W`;
+                        
+                        // Alert color if voltage sagging significantly
+                        if (volts < 4.5 && watts < 0.5) {
+                            ui.bat_input.innerText = "SOLAR/WEAK";
+                            ui.bat_input.style.color = "#ffcc00";
+                        } else {
+                            ui.bat_input.style.color = "#fff";
+                        }
+                    } else {
+                        ui.bat_input.innerText = "UNPLUGGED";
+                        ui.bat_input.style.color = "#888";
+                    }
                 }
 
                 if(ui.bat_charging) {
@@ -694,8 +709,10 @@
                 }
                 if(ui.imu_temp) ui.imu_temp.innerText = (s.imu_temp || 0) + "C";
                 
-                // Removed Estimation, use Real Measurement
-                if(ui.est_power) ui.est_power.innerText = "--"; 
+                let watts = 3.0;
+                if(s.cpu_load) watts += (s.cpu_load / 100) * 3.5;
+                if (d.cam_meta && d.cam_meta.fps > 0) watts += 1.2;
+                if(ui.est_power) ui.est_power.innerText = "~" + watts.toFixed(1) + " W";
 
                 if(ui.ram_use && s.ram_total_mb) {
                     ui.ram_use.innerText = `${s.ram_used_mb}/${s.ram_total_mb} MB`;
@@ -761,6 +778,7 @@
                     const img = document.createElement('img');
                     img.src = `/captures/${f}?t=${Date.now()}`;
                     img.className = "thumb";
+                    // Modified: Open Lightbox instead of window.open
                     img.onclick = () => openLightbox(img.src);
                     ui.gallery.appendChild(img);
                 });
