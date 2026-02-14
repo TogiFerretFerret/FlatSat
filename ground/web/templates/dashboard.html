@@ -57,8 +57,9 @@
         .bar-warn { background: var(--warn); }
         .bar-alert { background: var(--alert); }
         
-        .badge { display: inline-block; padding: 1px 4px; border-radius: 2px; font-size: 0.65em; margin-right: 2px; background: #222; color: #888; }
-        .badge.active { background: var(--alert); color: #fff; font-weight: bold; }
+        .badge { display: inline-block; padding: 1px 4px; border-radius: 2px; font-size: 0.65em; margin-right: 2px; background: #222; color: #888; cursor: pointer; }
+        .badge:hover { background: #444; }
+        .badge.active { background: var(--alert); color: #fff; font-weight: bold; cursor: default; }
 
         .btn { background: var(--panel); border: 1px solid var(--text); color: var(--text); width: 100%; padding: 8px; cursor: pointer; font-weight: bold; margin-top: 2px; font-size: 0.8em; user-select: none; }
         .btn:hover { background: var(--dim); color: #fff; }
@@ -91,6 +92,10 @@
         
         #container-3d { width: 100%; height: 180px; background: #000; border: 1px solid var(--border); margin-bottom: 5px; }
         .chart-container { position: relative; height: 100px; width: 100%; margin-bottom: 5px; }
+        
+        input[type="number"] {
+            background: #222; border: 1px solid #444; color: #fff; padding: 1px 3px; font-family: monospace; font-size: 0.8em;
+        }
     </style>
 </head>
 <body>
@@ -106,8 +111,8 @@
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <h2>Orientation (3D)</h2>
                     <div style="display:flex; gap:5px;">
-                        <button class="badge" style="cursor:pointer; border:1px solid #666; font-size:0.7em;" onclick="clearGhosts()">CLR TRACE</button>
-                        <button class="badge" style="cursor:pointer; border:1px solid #666; font-size:0.7em;" onclick="calibrateIMU()">RESET REF</button>
+                        <button class="badge" style="border:1px solid #666; font-size:0.7em;" onclick="clearGhosts()">CLR TRACE</button>
+                        <button class="badge" style="border:1px solid #666; font-size:0.7em;" onclick="calibrateIMU()">RESET REF</button>
                     </div>
                 </div>
                 <div id="container-3d"></div>
@@ -199,20 +204,31 @@
                 </div>
                 <div class="bar-bg" style="margin-top:-2px; margin-bottom:5px;"><div id="bar-bat" class="bar-fill" style="width:0%"></div></div>
                 <div class="data-row"><span>BAT VOLTS</span><span class="data-val" id="bat-volts">0.00 V</span></div>
-                <!-- ADDED: INPUT EST VOLTAGE -->
                 <div class="data-row"><span>INPUT (EST)</span><span class="data-val" id="bat-input">--</span></div>
                 <div class="data-row"><span>BAT TEMP</span><span class="data-val" id="bat-temp">0°C</span></div>
                 <div class="data-row" style="margin-bottom:8px;"><span>PLUGGED IN</span><span class="data-val" id="bat-plugged">NO</span></div>
+                
+                <!-- POWER CONTROLS -->
+                <div class="data-row" style="justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <span>CONTROL</span>
+                    <div style="display:flex; gap:3px;">
+                        <button class="badge" style="border:1px solid #f00; color:#f00;" onclick="setPower('shutdown', 10)">PWR OFF</button>
+                        <!-- CHANGED: REBOOT now cycles power -->
+                        <button class="badge" style="border:1px solid #ffcc00; color:#ffcc00;" onclick="setPower('cycle', 0)">REBOOT</button>
+                        <button class="badge" id="btn-chg" style="border:1px solid #444;" onclick="toggleCharging()">CHG: ON</button>
+                    </div>
+                </div>
 
                 <div class="data-row"><span>CORE VOLTS</span><span class="data-val" id="cpu-volts">0.00 V</span></div>
                 <div class="data-row"><span>CPU CLOCK</span><span class="data-val" id="cpu-clock">0 MHz</span></div>
-                <!-- CLOCK SPEED CONTROLS -->
+                
+                <!-- CPU SPEED CONTROLS -->
                 <div class="data-row" style="justify-content:space-between; align-items:center;">
                     <span>SPEED CTRL</span>
                     <div style="display:flex; gap:3px;">
-                        <button class="badge" style="cursor:pointer; border:1px solid #444;" onclick="setClock('powersave')">ECO</button>
-                        <button class="badge" style="cursor:pointer; border:1px solid #444;" onclick="setClock('ondemand')">AUTO</button>
-                        <button class="badge" style="cursor:pointer; border:1px solid #444;" onclick="setClock('performance')">MAX</button>
+                        <button class="badge" style="border:1px solid #444;" onclick="setClock('powersave')">ECO</button>
+                        <button class="badge" style="border:1px solid #444;" onclick="setClock('ondemand')">AUTO</button>
+                        <button class="badge" style="border:1px solid #444;" onclick="setClock('performance')">MAX</button>
                     </div>
                 </div>
                 
@@ -220,9 +236,8 @@
                 <div class="data-row" style="justify-content:space-between; align-items:center; margin-top:2px;">
                     <span>I2C CLOCK</span>
                     <div style="display:flex; gap:3px;">
-                        <button class="badge" style="cursor:pointer; border:1px solid #444;" onclick="setI2C(100000)">100K</button>
-                        <button class="badge" style="cursor:pointer; border:1px solid #444;" onclick="setI2C(400000)">400K</button>
-                        <button class="badge" style="cursor:pointer; border:1px solid #444;" onclick="setI2C(1000000)">1M</button>
+                        <input type="number" id="i2c-input" value="400000" style="width:70px;">
+                        <button class="badge" style="border:1px solid #444;" onclick="setI2C(document.getElementById('i2c-input').value)">SET</button>
                     </div>
                 </div>
 
@@ -450,9 +465,9 @@
             
             // Battery Elements
             bat_level: document.getElementById('bat-level'), bat_volts: document.getElementById('bat-volts'), 
-            bat_input: document.getElementById('bat-input'),
-            bat_charging: document.getElementById('bat-charging'), bat_temp: document.getElementById('bat-temp'),
-            bat_plugged: document.getElementById('bat-plugged'), bar_bat: document.getElementById('bar-bat'),
+            bat_input: document.getElementById('bat-input'), bat_charging: document.getElementById('bat-charging'), 
+            bat_temp: document.getElementById('bat-temp'), bat_plugged: document.getElementById('bat-plugged'), bar_bat: document.getElementById('bar-bat'),
+            btn_chg: document.getElementById('btn-chg'),
 
             ram_use: document.getElementById('ram-use'), gpu_mem: document.getElementById('gpu-mem'), disk_use: document.getElementById('disk-use'), img_cap: document.getElementById('img-cap'),
             bar_load: document.getElementById('bar-load'), bar_temp: document.getElementById('bar-temp'), 
@@ -464,6 +479,7 @@
         let pendingData = null;
         let offsetQuaternion = new THREE.Quaternion(); 
         let lastReceivedQuaternion = new THREE.Quaternion();
+        let chargingState = true;
 
         evtSource.onmessage = (e) => {
             try {
@@ -486,8 +502,7 @@
         async function setClock(mode) {
             try {
                 await fetch('/api/clock', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({mode: mode})
                 });
             } catch(e) { console.error(e); }
@@ -496,11 +511,42 @@
         async function setI2C(baud) {
             try {
                 await fetch('/api/i2c', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({baudrate: baud})
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({baudrate: parseInt(baud)})
                 });
             } catch(e) { console.error(e); }
+        }
+
+        async function setPower(action, value) {
+            try {
+                if (action === 'shutdown') {
+                    if (!confirm("Confirm System Shutdown?")) return;
+                }
+                if (action === 'reboot') {
+                    // CHANGE: Ask for confirmation for Hard Cycle
+                    if (!confirm("Confirm HARD POWER CYCLE? (15s delay)")) return;
+                    action = 'cycle'; // Map 'reboot' UI button to 'cycle' API action
+                }
+                await fetch('/api/power', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({action: action, value: value})
+                });
+            } catch(e) { console.error(e); }
+        }
+
+        function toggleCharging() {
+            chargingState = !chargingState;
+            setPower('charging', chargingState);
+            ui.btn_chg.innerText = chargingState ? "CHG: ON" : "CHG: OFF";
+            ui.btn_chg.style.color = chargingState ? "#fff" : "#ffcc00";
+        }
+
+        function formatUptime(seconds) {
+            const d = Math.floor(seconds / (3600*24));
+            const h = Math.floor((seconds % (3600*24)) / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            return `${d}d ${h}h ${m}m ${s}s`;
         }
 
         function updateDisplay(d) {
@@ -584,7 +630,6 @@
                 if(ui.bat_level) ui.bat_level.innerText = d.power.level + "%";
                 if(ui.bat_volts) ui.bat_volts.innerText = d.power.voltage + " V";
                 
-                // Show Calculated Input Voltage or --
                 if(ui.bat_input) {
                     ui.bat_input.innerText = d.power.input_est ? d.power.input_est + " V" : "--";
                 }
@@ -606,69 +651,93 @@
                     else if(d.power.level < 50) ui.bar_bat.className = "bar-fill bar-warn";
                     else ui.bar_bat.className = "bar-fill";
                 }
+                
+                // Sync Charging Button State
+                if (d.power.allow_charging !== undefined) {
+                    chargingState = d.power.allow_charging;
+                    ui.btn_chg.innerText = chargingState ? "CHG: ON" : "CHG: OFF";
+                    ui.btn_chg.style.color = chargingState ? "#fff" : "#ffcc00";
+                }
             }
 
+            // --- SYSTEM STATS (FIXED SAFE ACCESS) ---
             if (d.sys) {
-                ui.cpu_volts.innerText = d.sys.cpu_volts ? d.sys.cpu_volts.toFixed(2) + " V" : "--";
-                ui.cpu_clock.innerText = d.sys.cpu_clock + " MHz";
-                ui.throttle_hex.innerText = d.sys.throttle_hex;
-                ui.sys_threads.innerText = d.sys.active_threads || 0;
+                const s = d.sys; 
+                
+                if(ui.cpu_volts) ui.cpu_volts.innerText = s.cpu_volts ? s.cpu_volts.toFixed(2) + " V" : "--";
+                if(ui.cpu_clock) ui.cpu_clock.innerText = s.cpu_clock + " MHz";
+                if(ui.throttle_hex) ui.throttle_hex.innerText = s.throttle_hex;
+                if(ui.sys_threads) ui.sys_threads.innerText = s.active_threads || 0;
 
-                ui.net_rx.innerText = (d.sys.rx_kbps||0).toFixed(1) + " KB/s";
-                ui.net_tx.innerText = (d.sys.tx_kbps||0).toFixed(1) + " KB/s";
-                ui.wifi_rssi.innerText = (d.sys.wifi_dbm||0) + " dBm";
-                if (d.sys.wifi_dbm) {
-                    let qual = Math.max(0, Math.min(100, (d.sys.wifi_dbm + 90) * (100/60)));
+                if(ui.net_rx) ui.net_rx.innerText = (s.rx_kbps||0).toFixed(1) + " KB/s";
+                if(ui.net_tx) ui.net_tx.innerText = (s.tx_kbps||0).toFixed(1) + " KB/s";
+                
+                if(ui.wifi_rssi) ui.wifi_rssi.innerText = (s.wifi_dbm||0) + " dBm";
+                if(ui.link_qual && s.wifi_dbm) {
+                    let qual = Math.max(0, Math.min(100, (s.wifi_dbm + 90) * (100/60)));
                     ui.link_qual.innerText = qual.toFixed(0) + "%";
                     ui.link_qual.style.color = qual < 30 ? "red" : (qual < 60 ? "orange" : "#00ff41");
                 }
                 
-                ui.wifi_retry.innerText = d.sys.wifi_retry || 0;
-                if(ui.wifi_missed) ui.wifi_missed.innerText = d.sys.wifi_missed || 0;
-                ui.ip_addr.innerText = d.sys.ip_addr || "--";
+                if(ui.wifi_retry) ui.wifi_retry.innerText = s.wifi_retry || 0;
+                if(ui.wifi_missed) ui.wifi_missed.innerText = s.wifi_missed || 0;
+                if(ui.ip_addr) ui.ip_addr.innerText = s.ip_addr || "--";
                 
-                ui.cpu_load.innerText = d.sys.cpu_load + "%";
-                ui.bar_load.style.width = d.sys.cpu_load + "%";
-                ui.cpu_temp.innerText = d.sys.cpu_temp + "C";
-                ui.bar_temp.style.width = Math.min((d.sys.cpu_temp/85)*100, 100) + "%";
-                if(d.sys.cpu_temp > 80) ui.bar_temp.className = "bar-fill bar-alert"; else ui.bar_temp.className = "bar-fill";
-                ui.imu_temp.innerText = (d.sys.imu_temp || 0) + "C";
+                if(ui.cpu_load) ui.cpu_load.innerText = s.cpu_load + "%";
+                if(ui.bar_load) ui.bar_load.style.width = s.cpu_load + "%";
+                
+                if(ui.cpu_temp) ui.cpu_temp.innerText = s.cpu_temp + "C";
+                if(ui.bar_temp) {
+                    ui.bar_temp.style.width = Math.min((s.cpu_temp/85)*100, 100) + "%";
+                    ui.bar_temp.className = (s.cpu_temp > 80) ? "bar-fill bar-alert" : "bar-fill";
+                }
+                if(ui.imu_temp) ui.imu_temp.innerText = (s.imu_temp || 0) + "C";
                 
                 let watts = 3.0;
-                watts += (d.sys.cpu_load / 100) * 3.5;
+                if(s.cpu_load) watts += (s.cpu_load / 100) * 3.5;
                 if (d.cam_meta && d.cam_meta.fps > 0) watts += 1.2;
-                ui.est_power.innerText = "~" + watts.toFixed(1) + " W";
+                if(ui.est_power) ui.est_power.innerText = "~" + watts.toFixed(1) + " W";
 
-                ui.ram_use.innerText = `${d.sys.ram_used_mb}/${d.sys.ram_total_mb} MB`;
-                ui.bar_ram.style.width = (d.sys.ram_percent||0) + "%";
-                ui.gpu_mem.innerText = d.sys.gpu_mem || "0M";
-                ui.disk_use.innerText = `${d.sys.disk_used_gb}/${d.sys.disk_total_gb} GB`;
-                ui.bar_disk.style.width = (d.sys.disk_percent||0) + "%";
-                if (d.sys.disk_total_gb) {
-                    const free = (d.sys.disk_total_gb - d.sys.disk_used_gb) * 1024;
-                    ui.img_cap.innerText = "~" + Math.floor(free / 4) + " SHOTS";
+                if(ui.ram_use && s.ram_total_mb) {
+                    ui.ram_use.innerText = `${s.ram_used_mb}/${s.ram_total_mb} MB`;
+                    if(ui.bar_ram) ui.bar_ram.style.width = (s.ram_percent||0) + "%";
+                }
+                if(ui.gpu_mem) ui.gpu_mem.innerText = s.gpu_mem || "0M";
+                
+                if(ui.disk_use && s.disk_total_gb) {
+                    ui.disk_use.innerText = `${s.disk_used_gb}/${s.disk_total_gb} GB`;
+                    if(ui.bar_disk) ui.bar_disk.style.width = (s.disk_percent||0) + "%";
+                    if (ui.img_cap) {
+                        const free = (s.disk_total_gb - s.disk_used_gb) * 1024;
+                        ui.img_cap.innerText = "~" + Math.floor(free / 4) + " SHOTS";
+                    }
                 }
                 
-                ui.uptime.innerText = new Date((d.sys.uptime_script || 0) * 1000).toISOString().substr(11, 8);
+                if(ui.uptime) {
+                    ui.uptime.innerText = formatUptime(s.uptime_script || 0);
+                }
 
-                const flags = d.sys.throttle_flags || [];
-                document.getElementById('flag-throt').className = flags.includes('THROTTLED') ? "badge active" : "badge";
-                document.getElementById('flag-uv').className = flags.includes('UNDERVOLT') ? "badge active" : "badge";
+                const flags = s.throttle_flags || [];
+                const setBadge = (id, match) => {
+                    const el = document.getElementById(id);
+                    if(el) el.className = flags.includes(match) ? "badge active" : "badge";
+                };
+                setBadge('flag-throt', 'THROTTLED');
+                setBadge('flag-uv', 'UNDERVOLT');
                 
-                if (d.sys.processes && d.sys.processes.length > 0) {
+                if (s.processes && s.processes.length > 0 && ui.proc_list) {
                     let html = "";
-                    d.sys.processes.forEach(p => {
+                    s.processes.forEach(p => {
                         html += `<tr><td>${p.pid}</td><td>${p.name}</td><td>${p.cpu}%</td><td>${p.mem}%</td></tr>`;
                     });
                     ui.proc_list.innerHTML = html;
-                } else {
+                } else if(ui.proc_list) {
                     ui.proc_list.innerHTML = "<tr><td colspan='4' style='text-align:center; color:#555'>-- NO DATA --</td></tr>";
                 }
             }
-            if(d.rssi) ui.bt_rssi.innerText = d.rssi + " dBm";
+            if(d.rssi && ui.bt_rssi) ui.bt_rssi.innerText = d.rssi + " dBm";
         }
 
-        // --- SNAPSHOT (FIXED: POST to /snapshot) ---
         async function snap(exposure=0) { 
             try { 
                 let url = '/snapshot';
@@ -703,46 +772,30 @@
         async function openLightbox(src) { 
             const img = document.getElementById('lightbox-img');
             const metaDiv = document.getElementById('meta-content');
-            
             img.src = src; 
             document.getElementById('lightbox').style.display = 'flex';
-            
-            // --- METADATA FETCH LOGIC ---
-            // Convert .jpg to .json to find the sidecar file
             const jsonPath = src.replace(/\.(jpg|jpeg)/i, ".json");
-            
-            // Reset fields
             document.getElementById('meta-time').innerText = "Loading...";
             
             try {
                 const res = await fetch(jsonPath);
                 if(res.ok) {
                     const data = await res.json();
-                    
-                    // Time
                     const date = new Date(data.timestamp * 1000);
                     document.getElementById('meta-time').innerText = date.toLocaleTimeString();
                     document.getElementById('meta-date').innerText = date.toLocaleDateString();
-                    
-                    // Exposure
                     document.getElementById('meta-exp').innerText = data.exposure_sec.toFixed(2) + " s";
-                    
-                    // Pose
                     const q = data.pose_quaternion_wxyz;
                     document.getElementById('meta-qw').innerText = q[0].toFixed(3);
                     document.getElementById('meta-qx').innerText = q[1].toFixed(3);
                     document.getElementById('meta-qy').innerText = q[2].toFixed(3);
                     document.getElementById('meta-qz').innerText = q[3].toFixed(3);
-                    
-                    // Accel
                     const a = data.accel_ms2;
                     document.getElementById('meta-accel').innerText = `${a.x.toFixed(2)}, ${a.y.toFixed(2)}, ${a.z.toFixed(2)}`;
-                    
                 } else {
                     document.getElementById('meta-time').innerText = "NO DATA";
                 }
             } catch(e) {
-                console.error("Metadata Load Failed", e);
                 document.getElementById('meta-time').innerText = "ERROR";
             }
         }

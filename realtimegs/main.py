@@ -185,6 +185,43 @@ def set_i2c():
         return jsonify({"status": "error"}), 400
     except Exception as e: return jsonify({"status": "error", "msg": str(e)}), 500
 
+@app.route('/api/power', methods=['POST'])
+def set_power():
+    try:
+        action = request.json.get('action') # shutdown, charging, cycle, reboot
+        val = request.json.get('value')
+        
+        if action == 'shutdown':
+            delay = int(val) if val else 10
+            if power.shutdown(delay):
+                return jsonify({"status": "ok", "msg": f"Battery Off in {delay}s"})
+            return jsonify({"status": "error", "msg": "Hardware write failed"})
+            
+        elif action == 'cycle':
+            # Hard Power Cycle via Watchdog
+            # 1. Enable Watchdog (20s timeout)
+            if power.power_cycle(20):
+                # 2. Trigger Safe Shutdown immediately
+                # The watchdog will trigger power cut ~15s after OS dies
+                subprocess.Popen("sleep 1 && sudo shutdown -h now", shell=True)
+                return jsonify({"status": "ok", "msg": "Cycling Power..."})
+            return jsonify({"status": "error", "msg": "Watchdog enable failed"})
+            
+        elif action == 'reboot':
+            # Soft Reboot (OS only)
+            subprocess.Popen("sleep 1 && sudo reboot", shell=True)
+            return jsonify({"status": "ok", "msg": "Rebooting..."})
+            
+        elif action == 'charging':
+            enable = bool(val)
+            if power.set_charging(enable):
+                return jsonify({"status": "ok", "charging": enable})
+            return jsonify({"status": "error", "msg": "Hardware write failed"})
+            
+        return jsonify({"status": "error", "msg": "Invalid action"}), 400
+    except Exception as e:
+        return jsonify({"status": "error", "msg": str(e)}), 500
+
 class HybridNode:
     def __init__(self):
         self.running = True
@@ -197,17 +234,14 @@ class HybridNode:
 
     def run_bt_server(self):
         print("[BT] Init (Resetting Adapter)...")
-        # Critical for macOS connection stability
         os.system("sudo hciconfig hci0 down")
         os.system("sudo hciconfig hci0 up")
         os.system("sudo hciconfig hci0 piscan")
-        # Explicit channel 1 advertisement
         os.system("sdptool add --channel=1 SP")
         
         s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
         s.bind(("00:00:00:00:00:00", 1))
         s.listen(1)
-        print("[BT] Listening on Channel 1...")
         
         while self.running:
             try:
