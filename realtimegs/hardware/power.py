@@ -24,6 +24,7 @@ class PiSugar:
         
         # State
         self.battery_voltage = 0.00
+        self.battery_current = 0.00 # Amps (+ charging, - discharging)
         self.voltage_history = deque(maxlen=10)
         self.battery_level = 0.0
         self.temperature = 0
@@ -42,9 +43,16 @@ class PiSugar:
             print("[Power] SMBus not found (Simulation Mode)")
 
     def get_data(self):
+        # Calculate Power (Watts)
+        # If current is positive (charging), this is input power.
+        # If negative (discharging), this is system consumption.
+        watts = round(abs(self.battery_voltage * self.battery_current), 2)
+        
         return {
             "model": self.model,
             "voltage": round(self.battery_voltage, 2),
+            "current": round(self.battery_current, 2), # New
+            "watts": watts, # New
             "level": round(self.battery_level, 1),
             "plugged": self.power_plugged,
             "charging": self.allow_charging and self.power_plugged,
@@ -56,73 +64,60 @@ class PiSugar:
     # --- CONTROL FUNCTIONS ---
 
     def power_cycle(self, delay=20):
-        """
-        Hard Power Cycle via System Watchdog.
-        Use this to recover from stuck hardware (IMU, etc).
-        1. Resets Watchdog Counter.
-        2. Sets Timeout.
-        3. Enables Watchdog.
-        """
         if not self.ready or not self.bus: return False
         try:
             print(f"[Power] Setting Watchdog for Cycle in {delay}s...")
-            # 1. Unlock
-            self.bus.write_byte_data(PISUGAR_ADDR, 0x0B, 0x29)
+            self.bus.write_byte_data(PISUGAR_ADDR, 0x0B, 0x29) # Unlock
             
-            # 2. Reset Watchdog Counter (Bit 5 of 0x06)
-            # This ensures we start with a clean slate
+            # Reset Watchdog
             ctrl = self.bus.read_byte_data(PISUGAR_ADDR, 0x06)
             self.bus.write_byte_data(PISUGAR_ADDR, 0x06, ctrl | (1 << 5)) 
             
-            # 3. Set Timeout (Register 0x07)
-            # PiSugar expects timeout / 2
+            # Set Timeout
             timeout_val = int(delay // 2)
             self.bus.write_byte_data(PISUGAR_ADDR, 0x07, timeout_val)
             
-            # 4. Enable System Watchdog (Register 0x06, Bit 7)
+            # Enable
             ctrl = self.bus.read_byte_data(PISUGAR_ADDR, 0x06)
             self.bus.write_byte_data(PISUGAR_ADDR, 0x06, ctrl | 0x80)
             
-            # 5. Lock
-            self.bus.write_byte_data(PISUGAR_ADDR, 0x0B, 0x00)
+            self.bus.write_byte_data(PISUGAR_ADDR, 0x0B, 0x00) # Lock
             return True
         except Exception as e:
             print(f"[Power] Watchdog Enable Failed: {e}")
             return False
 
     def shutdown(self, delay=10):
-        """Cuts 5V power to the Pi (Hard Power Off)."""
         if not self.ready or not self.bus: return False
         try:
             print(f"[Power] Scheduling Power Cut in {delay}s...")
-            self.bus.write_byte_data(PISUGAR_ADDR, 0x0B, 0x29) # Unlock
-            self.bus.write_byte_data(PISUGAR_ADDR, 0x09, delay) # Delay
+            self.bus.write_byte_data(PISUGAR_ADDR, 0x0B, 0x29) 
+            self.bus.write_byte_data(PISUGAR_ADDR, 0x09, delay)
             
             ctrl = self.bus.read_byte_data(PISUGAR_ADDR, 0x02)
-            new_ctrl = ctrl & ~(1 << 5) # Clear Bit 5 (Power Output)
+            new_ctrl = ctrl & ~(1 << 5) 
             
             self.bus.write_byte_data(PISUGAR_ADDR, 0x02, new_ctrl)
-            self.bus.write_byte_data(PISUGAR_ADDR, 0x0B, 0x00) # Lock
+            self.bus.write_byte_data(PISUGAR_ADDR, 0x0B, 0x00) 
             return True
         except Exception as e:
             print(f"[Power] Power Cut Command Failed: {e}")
             return False
 
     def set_charging(self, enable):
-        """Enables or Disables battery charging."""
         if not self.ready or not self.bus: return False
         try:
             print(f"[Power] Setting Charging: {enable}")
-            self.bus.write_byte_data(PISUGAR_ADDR, 0x0B, 0x29) # Unlock
+            self.bus.write_byte_data(PISUGAR_ADDR, 0x0B, 0x29) 
             
             ctrl = self.bus.read_byte_data(PISUGAR_ADDR, 0x02)
             if enable:
-                new_ctrl = ctrl | (1 << 6) # Set bit 6
+                new_ctrl = ctrl | (1 << 6)
             else:
-                new_ctrl = ctrl & ~(1 << 6) # Clear bit 6
+                new_ctrl = ctrl & ~(1 << 6)
             
             self.bus.write_byte_data(PISUGAR_ADDR, 0x02, new_ctrl)
-            self.bus.write_byte_data(PISUGAR_ADDR, 0x0B, 0x00) # Lock
+            self.bus.write_byte_data(PISUGAR_ADDR, 0x0B, 0x00) 
             
             self.allow_charging = enable
             return True
@@ -141,10 +136,16 @@ class PiSugar:
 
         while True:
             try:
-                # Chunk 1: 0x00 - 0x1F (32 bytes)
+                # Need registers up to 0x2D for Current
+                # Reading 64 bytes is safe on Pi usually, but chunking is safer
+                # Registers of interest:
+                # 0x02: Control
+                # 0x04: Temp
+                # 0x22-23: Voltage
+                # 0x2C-2D: Current (Estimation)
+                
                 chunk1 = self.bus.read_i2c_block_data(PISUGAR_ADDR, 0, 32)
-                # Chunk 2: 0x20 - 0x2F (16 bytes)
-                chunk2 = self.bus.read_i2c_block_data(PISUGAR_ADDR, 32, 16)
+                chunk2 = self.bus.read_i2c_block_data(PISUGAR_ADDR, 32, 16) # Gets us to 0x2F
                 self.i2creg = chunk1 + chunk2
                 self._parse_data()
                 time.sleep(1.0)
@@ -153,17 +154,31 @@ class PiSugar:
                 time.sleep(2)
 
     def _parse_data(self):
-        if not self.i2creg or len(self.i2creg) < 36: return
+        if not self.i2creg or len(self.i2creg) < 46: return
 
-        # Voltage
+        # 1. Voltage (0x22 High, 0x23 Low)
         high = self.i2creg[0x22]
         low = self.i2creg[0x23]
         self.battery_voltage = ((high << 8) + low) / 1000.0
 
-        # Temp
-        self.temperature = self.i2creg[0x04] - 40
+        # 2. Current (0x2C High, 0x2D Low) - Signed 16-bit
+        # Positive = Charging, Negative = Discharging
+        try:
+            curr_high = self.i2creg[0x2C]
+            curr_low = self.i2creg[0x2D]
+            raw_curr = (curr_high << 8) + curr_low
+            
+            # Convert to signed 16-bit
+            if raw_curr > 32767:
+                raw_curr -= 65536
+            
+            # Unit is usually mA
+            self.battery_current = raw_curr / 1000.0 
+        except IndexError:
+            self.battery_current = 0.0
 
-        # Status
+        # 3. Temp & Status
+        self.temperature = self.i2creg[0x04] - 40
         ctr1 = self.i2creg[0x02]
         self.power_plugged = (ctr1 & (1 << 7)) != 0
         self.allow_charging = (ctr1 & (1 << 6)) != 0

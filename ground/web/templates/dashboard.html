@@ -204,7 +204,10 @@
                 </div>
                 <div class="bar-bg" style="margin-top:-2px; margin-bottom:5px;"><div id="bar-bat" class="bar-fill" style="width:0%"></div></div>
                 <div class="data-row"><span>BAT VOLTS</span><span class="data-val" id="bat-volts">0.00 V</span></div>
-                <div class="data-row"><span>INPUT (EST)</span><span class="data-val" id="bat-input">--</span></div>
+                
+                <!-- NEW INPUT POWER ROW -->
+                <div class="data-row"><span>INPUT (SOLAR)</span><span class="data-val" id="bat-input">-- W</span></div>
+                
                 <div class="data-row"><span>BAT TEMP</span><span class="data-val" id="bat-temp">0°C</span></div>
                 <div class="data-row" style="margin-bottom:8px;"><span>PLUGGED IN</span><span class="data-val" id="bat-plugged">NO</span></div>
                 
@@ -213,7 +216,6 @@
                     <span>CONTROL</span>
                     <div style="display:flex; gap:3px;">
                         <button class="badge" style="border:1px solid #f00; color:#f00;" onclick="setPower('shutdown', 10)">PWR OFF</button>
-                        <!-- CHANGED: REBOOT now cycles power -->
                         <button class="badge" style="border:1px solid #ffcc00; color:#ffcc00;" onclick="setPower('cycle', 0)">REBOOT</button>
                         <button class="badge" id="btn-chg" style="border:1px solid #444;" onclick="toggleCharging()">CHG: ON</button>
                     </div>
@@ -523,9 +525,8 @@
                     if (!confirm("Confirm System Shutdown?")) return;
                 }
                 if (action === 'reboot') {
-                    // CHANGE: Ask for confirmation for Hard Cycle
-                    if (!confirm("Confirm HARD POWER CYCLE? (15s delay)")) return;
-                    action = 'cycle'; // Map 'reboot' UI button to 'cycle' API action
+                    if (!confirm("Confirm Hard Power Cycle? (15s delay)")) return;
+                    action = 'cycle';
                 }
                 await fetch('/api/power', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -630,8 +631,9 @@
                 if(ui.bat_level) ui.bat_level.innerText = d.power.level + "%";
                 if(ui.bat_volts) ui.bat_volts.innerText = d.power.voltage + " V";
                 
+                // Show Calculated Input Power or --
                 if(ui.bat_input) {
-                    ui.bat_input.innerText = d.power.input_est ? d.power.input_est + " V" : "--";
+                    ui.bat_input.innerText = d.power.watts > 0 ? d.power.watts + " W" : (d.power.plugged ? "LOW" : "--");
                 }
 
                 if(ui.bat_charging) {
@@ -660,7 +662,6 @@
                 }
             }
 
-            // --- SYSTEM STATS (FIXED SAFE ACCESS) ---
             if (d.sys) {
                 const s = d.sys; 
                 
@@ -693,10 +694,8 @@
                 }
                 if(ui.imu_temp) ui.imu_temp.innerText = (s.imu_temp || 0) + "C";
                 
-                let watts = 3.0;
-                if(s.cpu_load) watts += (s.cpu_load / 100) * 3.5;
-                if (d.cam_meta && d.cam_meta.fps > 0) watts += 1.2;
-                if(ui.est_power) ui.est_power.innerText = "~" + watts.toFixed(1) + " W";
+                // Removed Estimation, use Real Measurement
+                if(ui.est_power) ui.est_power.innerText = "--"; 
 
                 if(ui.ram_use && s.ram_total_mb) {
                     ui.ram_use.innerText = `${s.ram_used_mb}/${s.ram_total_mb} MB`;
@@ -762,7 +761,6 @@
                     const img = document.createElement('img');
                     img.src = `/captures/${f}?t=${Date.now()}`;
                     img.className = "thumb";
-                    // Modified: Open Lightbox instead of window.open
                     img.onclick = () => openLightbox(img.src);
                     ui.gallery.appendChild(img);
                 });
