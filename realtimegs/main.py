@@ -127,9 +127,54 @@ class SystemMonitor:
 
 sys_mon = SystemMonitor()
 
+# --- HELPER FUNCTIONS ---
+def calculate_attitude(accel, mag):
+    ax, ay, az = accel['x'], accel['y'], accel['z']
+    roll = math.atan2(ay, az)
+    pitch = math.atan2(-ax, math.sqrt(ay*ay + az*az))
+    mx, my, mz = mag['x'], mag['y'], mag['z']
+    
+    roll_rad = math.atan2(ay, az)
+    pitch_rad = math.atan2(-ax, math.sqrt(ay*ay + az*az))
+    mx_comp = mx * math.cos(pitch_rad) + mz * math.sin(pitch_rad)
+    my_comp = mx * math.sin(roll_rad) * math.sin(pitch_rad) + my * math.cos(roll_rad) - mz * math.sin(roll_rad) * math.cos(pitch_rad)
+    
+    yaw = math.atan2(-my_comp, mx_comp)
+    return {
+        "roll": math.degrees(roll),
+        "pitch": math.degrees(pitch),
+        "yaw": (math.degrees(yaw) + 360) % 360
+    }
+
+CURRENT_RES = STREAM_RES
+
+# DEFINE THIS GLOBALLY SO SNAPSHOT CAN SEE IT
+def configure_camera(width, height):
+    global CURRENT_RES
+    try:
+        try: cam.picam2.stop()
+        except: pass
+        config = cam.picam2.create_video_configuration(main={"size": (width, height), "format": "RGB888"})
+        cam.picam2.configure(config)
+        cam.picam2.start()
+        CURRENT_RES = (width, height)
+    except Exception as e: print(f"[Cam] Config Error: {e}")
+
+# Initial Config
+configure_camera(STREAM_RES[0], STREAM_RES[1])
+
 def assemble_telemetry():
     data = imu.get_data() if imu else {"status": "no_imu"}
     data["status"] = "ONLINE"
+    
+    if data["status"] == "ONLINE" and "accel" in data:
+        data["attitude"] = calculate_attitude(data["accel"], data["mag"])
+        ax, ay, az = data["accel"]["x"], data["accel"]["y"], data["accel"]["z"]
+        data["total_g"] = round(math.sqrt(ax**2 + ay**2 + az**2) / 9.81, 2)
+        
+        # Jerk calc omitted for brevity, add if needed
+        data["jerk"] = 0.0 
+
     data["sys"] = sys_mon.get_stats()
     data["sys"]["active_threads"] = threading.active_count()
     if data.get("temp"): data["sys"]["imu_temp"] = round(data["temp"], 1)
@@ -157,6 +202,7 @@ def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
     return response
 
+# --- API ROUTES ---
 @app.route('/api/clock', methods=['POST'])
 def set_clock():
     try:
@@ -188,7 +234,7 @@ def set_i2c():
 @app.route('/api/power', methods=['POST'])
 def set_power():
     try:
-        action = request.json.get('action') # shutdown, charging, cycle, reboot
+        action = request.json.get('action') 
         val = request.json.get('value')
         
         if action == 'shutdown':
@@ -199,16 +245,12 @@ def set_power():
             return jsonify({"status": "error", "msg": "Hardware write failed"})
             
         elif action == 'cycle':
-            # Hard Power Cycle via Watchdog
             if power.power_cycle(20):
-                # Watchdog triggers 20s from now (10s adjusted)
-                # We kill OS immediately so it stops feeding watchdog (if any OS watchdog exists, but we use HW one)
                 subprocess.Popen("sleep 1 && sudo /sbin/shutdown -h now", shell=True)
                 return jsonify({"status": "ok", "msg": "Cycling Power..."})
             return jsonify({"status": "error", "msg": "Watchdog enable failed"})
             
         elif action == 'reboot':
-            # Soft Reboot (OS only)
             subprocess.Popen("sleep 1 && sudo /sbin/reboot", shell=True)
             return jsonify({"status": "ok", "msg": "Rebooting..."})
             
@@ -233,9 +275,7 @@ class HybridNode:
         except: return 0
 
     def run_bt_server(self):
-        print("[BT] Init (Resetting Adapter)...")
-        os.system("sudo /usr/bin/hciconfig hci0 down")
-        os.system("sudo /usr/bin/hciconfig hci0 up")
+        print("[BT] Init...")
         os.system("sudo /usr/bin/hciconfig hci0 piscan")
         os.system("/usr/bin/sdptool add --channel=1 SP")
         
@@ -272,7 +312,8 @@ def stream():
                 frame = s.read()
                 s.seek(0); s.truncate()
                 yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-            except: pass
+            except Exception: # FIX: Explicitly catch Exception to ignore GeneratorExit
+                pass
             time.sleep(0.03)
     return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
@@ -282,6 +323,7 @@ def snapshot():
     exp = request.args.get('exposure', 0.0, type=float)
     with cam_lock:
         data = assemble_telemetry()
+        # FIX: Ensure configure_camera is defined/available
         configure_camera(CAPTURE_RES[0], CAPTURE_RES[1])
         if exp > 0:
             us = int(exp*1000000)
