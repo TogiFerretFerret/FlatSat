@@ -306,7 +306,7 @@ def stream():
         s = io.BytesIO()
         while True:
             try:
-                cam.picam2.capture_file(s, format="jpeg")
+                #cam.picam2.capture_file(s, format="jpeg")
                 if 'node' in globals(): node.last_cam_activity = time.time()
                 s.seek(0)
                 frame = s.read()
