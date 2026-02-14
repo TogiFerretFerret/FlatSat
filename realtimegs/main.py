@@ -196,12 +196,19 @@ class HybridNode:
         except: return 0
 
     def run_bt_server(self):
-        print("[BT] Init...")
+        print("[BT] Init (Resetting Adapter)...")
+        # Critical for macOS connection stability
+        os.system("sudo hciconfig hci0 down")
+        os.system("sudo hciconfig hci0 up")
         os.system("sudo hciconfig hci0 piscan")
-        os.system("sdptool add SP")
+        # Explicit channel 1 advertisement
+        os.system("sdptool add --channel=1 SP")
+        
         s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
         s.bind(("00:00:00:00:00:00", 1))
         s.listen(1)
+        print("[BT] Listening on Channel 1...")
+        
         while self.running:
             try:
                 client, addr = s.accept()
