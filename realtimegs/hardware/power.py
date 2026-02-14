@@ -57,10 +57,11 @@ class PiSugar:
 
     def power_cycle(self, delay=20):
         """
-        Hard Power Cycle via Watchdog.
-        1. Enables Watchdog.
-        2. Waits for OS to shutdown.
-        3. Watchdog expires -> Cuts Power -> Restores Power.
+        Hard Power Cycle via System Watchdog.
+        Use this to recover from stuck hardware (IMU, etc).
+        1. Resets Watchdog Counter.
+        2. Sets Timeout.
+        3. Enables Watchdog.
         """
         if not self.ready or not self.bus: return False
         try:
@@ -68,19 +69,21 @@ class PiSugar:
             # 1. Unlock
             self.bus.write_byte_data(PISUGAR_ADDR, 0x0B, 0x29)
             
-            # 2. Set Timeout (Register 0x07)
-            # Note: PiSugar expects timeout / 2
-            # 20 seconds / 2 = 10 (0x0A)
+            # 2. Reset Watchdog Counter (Bit 5 of 0x06)
+            # This ensures we start with a clean slate
+            ctrl = self.bus.read_byte_data(PISUGAR_ADDR, 0x06)
+            self.bus.write_byte_data(PISUGAR_ADDR, 0x06, ctrl | (1 << 5)) 
+            
+            # 3. Set Timeout (Register 0x07)
+            # PiSugar expects timeout / 2
             timeout_val = int(delay // 2)
             self.bus.write_byte_data(PISUGAR_ADDR, 0x07, timeout_val)
             
-            # 3. Enable System Watchdog (Register 0x06, Bit 7)
-            # Read current config to preserve other bits
-            current_wd = self.bus.read_byte_data(PISUGAR_ADDR, 0x06)
-            # Set Bit 7 (0x80) to Enable
-            self.bus.write_byte_data(PISUGAR_ADDR, 0x06, current_wd | 0x80)
+            # 4. Enable System Watchdog (Register 0x06, Bit 7)
+            ctrl = self.bus.read_byte_data(PISUGAR_ADDR, 0x06)
+            self.bus.write_byte_data(PISUGAR_ADDR, 0x06, ctrl | 0x80)
             
-            # 4. Lock
+            # 5. Lock
             self.bus.write_byte_data(PISUGAR_ADDR, 0x0B, 0x00)
             return True
         except Exception as e:
@@ -138,7 +141,9 @@ class PiSugar:
 
         while True:
             try:
+                # Chunk 1: 0x00 - 0x1F (32 bytes)
                 chunk1 = self.bus.read_i2c_block_data(PISUGAR_ADDR, 0, 32)
+                # Chunk 2: 0x20 - 0x2F (16 bytes)
                 chunk2 = self.bus.read_i2c_block_data(PISUGAR_ADDR, 32, 16)
                 self.i2creg = chunk1 + chunk2
                 self._parse_data()
@@ -149,13 +154,20 @@ class PiSugar:
 
     def _parse_data(self):
         if not self.i2creg or len(self.i2creg) < 36: return
+
+        # Voltage
         high = self.i2creg[0x22]
         low = self.i2creg[0x23]
         self.battery_voltage = ((high << 8) + low) / 1000.0
+
+        # Temp
         self.temperature = self.i2creg[0x04] - 40
+
+        # Status
         ctr1 = self.i2creg[0x02]
         self.power_plugged = (ctr1 & (1 << 7)) != 0
         self.allow_charging = (ctr1 & (1 << 6)) != 0
+
         self._calc_level()
 
     def _calc_level(self):

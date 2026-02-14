@@ -170,7 +170,7 @@ def set_clock():
                     if os.path.exists(gov): open(gov, "w").write(mode)
             return jsonify({"status": "ok"})
         if speed and int(speed) > 0:
-            subprocess.run(["sudo", "cpufreq-set", "-u", str(speed)])
+            subprocess.run(["sudo", "/usr/bin/cpufreq-set", "-u", str(speed)])
             return jsonify({"status": "ok"})
         return jsonify({"status": "error"}), 400
     except Exception as e: return jsonify({"status": "error", "msg": str(e)}), 500
@@ -180,7 +180,7 @@ def set_i2c():
     try:
         baud = request.json.get('baudrate')
         if baud:
-            subprocess.run(["sudo", "dtparam", f"i2c_arm_baudrate={baud}"], check=True)
+            subprocess.run(["sudo", "/usr/bin/dtparam", f"i2c_arm_baudrate={baud}"], check=True)
             return jsonify({"status": "ok"})
         return jsonify({"status": "error"}), 400
     except Exception as e: return jsonify({"status": "error", "msg": str(e)}), 500
@@ -194,22 +194,22 @@ def set_power():
         if action == 'shutdown':
             delay = int(val) if val else 10
             if power.shutdown(delay):
+                subprocess.Popen(f"sleep {delay} && sudo /sbin/shutdown -h now", shell=True)
                 return jsonify({"status": "ok", "msg": f"Battery Off in {delay}s"})
             return jsonify({"status": "error", "msg": "Hardware write failed"})
             
         elif action == 'cycle':
             # Hard Power Cycle via Watchdog
-            # 1. Enable Watchdog (20s timeout)
             if power.power_cycle(20):
-                # 2. Trigger Safe Shutdown immediately
-                # The watchdog will trigger power cut ~15s after OS dies
-                subprocess.Popen("sleep 1 && sudo shutdown -h now", shell=True)
+                # Watchdog triggers 20s from now (10s adjusted)
+                # We kill OS immediately so it stops feeding watchdog (if any OS watchdog exists, but we use HW one)
+                subprocess.Popen("sleep 1 && sudo /sbin/shutdown -h now", shell=True)
                 return jsonify({"status": "ok", "msg": "Cycling Power..."})
             return jsonify({"status": "error", "msg": "Watchdog enable failed"})
             
         elif action == 'reboot':
             # Soft Reboot (OS only)
-            subprocess.Popen("sleep 1 && sudo reboot", shell=True)
+            subprocess.Popen("sleep 1 && sudo /sbin/reboot", shell=True)
             return jsonify({"status": "ok", "msg": "Rebooting..."})
             
         elif action == 'charging':
@@ -229,15 +229,15 @@ class HybridNode:
         threading.Thread(target=self.run_bt_server, daemon=True).start()
 
     def get_rssi(self, mac):
-        try: return int(subprocess.check_output(["hcitool", "rssi", mac], stderr=subprocess.DEVNULL).decode().split(":")[1])
+        try: return int(subprocess.check_output(["/usr/bin/hcitool", "rssi", mac], stderr=subprocess.DEVNULL).decode().split(":")[1])
         except: return 0
 
     def run_bt_server(self):
         print("[BT] Init (Resetting Adapter)...")
-        os.system("sudo hciconfig hci0 down")
-        os.system("sudo hciconfig hci0 up")
-        os.system("sudo hciconfig hci0 piscan")
-        os.system("sdptool add --channel=1 SP")
+        os.system("sudo /usr/bin/hciconfig hci0 down")
+        os.system("sudo /usr/bin/hciconfig hci0 up")
+        os.system("sudo /usr/bin/hciconfig hci0 piscan")
+        os.system("/usr/bin/sdptool add --channel=1 SP")
         
         s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
         s.bind(("00:00:00:00:00:00", 1))
