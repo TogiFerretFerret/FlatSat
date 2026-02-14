@@ -631,19 +631,18 @@
                 if(ui.bat_level) ui.bat_level.innerText = d.power.level + "%";
                 if(ui.bat_volts) ui.bat_volts.innerText = d.power.voltage + " V";
                 
-                // Show Calculated Input Voltage AND Watts
+                // FIXED: ALWAYS SHOW VOLTS/WATTS even if "weak"
                 if(ui.bat_input) {
                     if (d.power.plugged) {
                         const volts = d.power.input_est || 5.0; // Fallback
                         const watts = d.power.watts || 0;
                         ui.bat_input.innerText = `${volts} V / ${watts} W`;
                         
-                        // Alert color if voltage sagging significantly
-                        if (volts < 4.5 && watts < 0.5) {
-                            ui.bat_input.innerText = "SOLAR/WEAK";
-                            ui.bat_input.style.color = "#ffcc00";
+                        // Yellow tint if voltage < 4.5V (Solar/Sag)
+                        if (volts < 4.5) {
+                            ui.bat_input.style.color = "#ffcc00"; // Yellow warning
                         } else {
-                            ui.bat_input.style.color = "#fff";
+                            ui.bat_input.style.color = "#fff"; // Normal
                         }
                     } else {
                         ui.bat_input.innerText = "UNPLUGGED";
