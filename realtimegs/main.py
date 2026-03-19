@@ -215,10 +215,21 @@ def assemble_telemetry():
 
 app = Flask(__name__)
 
+@app.route('/')
+def index():
+    return "CUBESAT SERVER ONLINE"
+
 @app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
     return response
+
+@app.route('/telemetry')
+def get_telemetry_http():
+    try:
+        return jsonify(assemble_telemetry())
+    except Exception as e:
+        return jsonify({"status": "error", "msg": str(e)}), 500
 
 # --- API ROUTES ---
 @app.route('/api/clock', methods=['POST'])
@@ -282,55 +293,6 @@ def set_power():
     except Exception as e:
         return jsonify({"status": "error", "msg": str(e)}), 500
 
-class HybridNode:
-    def __init__(self):
-        self.running = True
-        self.last_cam_activity = 0
-        threading.Thread(target=self.run_bt_server, daemon=True).start()
-
-    def get_rssi(self, mac):
-        try: return int(subprocess.check_output(["/usr/bin/hcitool", "rssi", mac], stderr=subprocess.DEVNULL).decode().split(":")[1])
-        except: return 0
-
-    def run_bt_server(self):
-        print("[BT] Init...")
-        os.system("sudo /usr/bin/hciconfig hci0 piscan")
-        os.system("/usr/bin/sdptool add --channel=1 SP")
-        
-        s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
-        s.bind(("00:00:00:00:00:00", 1))
-        s.listen(1)
-        
-        while self.running:
-            client = None
-            try:
-                print("[BT] Waiting for connection...")
-                client, addr = s.accept()
-                print(f"[BT] Connected: {addr}")
-                while self.running:
-                    # Occasional background capture to keep camera warmed up if needed
-                    # but only if not busy with HTTP stream
-                    if time.time() - self.last_cam_activity > 2.0:
-                        try:
-                            # Use a small timeout or non-blocking?
-                            # For now just try capture
-                            with cam_lock: cam.picam2.capture_file(io.BytesIO(), format="jpeg")
-                            self.last_cam_activity = time.time()
-                        except: pass
-                    
-                    data = assemble_telemetry()
-                    data["rssi"] = self.get_rssi(addr[0])
-                    msg = json.dumps(data).encode('utf-8')
-                    client.sendall(struct.pack("!4sI", b"TELE", len(msg)) + msg)
-                    time.sleep(0.25)
-            except (socket.error, BrokenPipeError, ConnectionResetError) as e:
-                print(f"[BT] Connection lost: {e}")
-            finally:
-                if client:
-                    try: client.close()
-                    except: pass
-            time.sleep(1)
-
 @app.route('/stream')
 def stream():
     def gen():
@@ -338,12 +300,11 @@ def stream():
         while True:
             try:
                 cam.picam2.capture_file(s, format="jpeg")
-                if 'node' in globals(): node.last_cam_activity = time.time()
                 s.seek(0)
                 frame = s.read()
                 s.seek(0); s.truncate()
                 yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-            except Exception: # FIX: Explicitly catch Exception to ignore GeneratorExit
+            except Exception:
                 pass
             time.sleep(0.03)
     return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
@@ -354,7 +315,6 @@ def snapshot():
     exp = request.args.get('exposure', 0.0, type=float)
     with cam_lock:
         data = assemble_telemetry()
-        # FIX: Ensure configure_camera is defined/available
         configure_camera(CAPTURE_RES[0], CAPTURE_RES[1])
         if exp > 0:
             us = int(exp*1000000)
@@ -364,13 +324,12 @@ def snapshot():
         cam.picam2.capture_file(s, format="jpeg")
         configure_camera(STREAM_RES[0], STREAM_RES[1])
         cam.picam2.set_controls({"ExposureTime": 0, "FrameDurationLimits": (0, 0)})
-        if 'node' in globals(): node.last_cam_activity = time.time()
     s.seek(0)
     resp = make_response(send_file(s, mimetype='image/jpeg', download_name='snap.jpg'))
+    # Use the same quaternion logic as before
     resp.headers['X-Pose'] = ",".join(map(str, data.get("quaternion", [1,0,0,0])))
     resp.headers['X-Accel'] = f"{data.get('accel',{'x':0})['x']},{data.get('accel',{'y':0})['y']},{data.get('accel',{'z':0})['z']}"
     return resp
 
 if __name__ == "__main__":
-    node = HybridNode()
     app.run(host='0.0.0.0', port=HTTP_PORT, threaded=True)
