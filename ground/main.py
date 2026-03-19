@@ -9,47 +9,40 @@ import sys
 import glob
 from flask import Flask, render_template, jsonify, request, Response, stream_with_context, send_from_directory
 
-# --- CONFIG ---
-PI_BT_MAC = "D8:3A:DD:3C:12:16"  # CHANGE THIS to your Pi's MAC
+# --- IMPORT YOUR ALGORITHM ---
 try:
-    # Tries to resolve 'cubesat.local' dynamically
+    from lunar_landing_analyzer import analyze_image
+except ImportError as e:
+    print(f"WARNING: lunar_landing_analyzer failed to load. Missing scipy/matplotlib? {e}")
+    analyze_image = None
+
+# --- CONFIG ---
+PI_BT_MAC = "D8:3A:DD:3C:12:16"
+try:
     PI_WIFI_IP = socket.gethostbyname("cubesat.local")
-    print(f"Resolved cubesat.local to: {PI_WIFI_IP}")
 except socket.gaierror:
-    # Fallback if the Pi is offline or mDNS fails
-    print("Could not resolve cubesat.local! Using fallback IP.")
     PI_WIFI_IP = "192.168.1.183"
 PI_VIDEO_PORT = 8000
 
-# Robust Path Handling
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CAPTURE_DIR = os.path.join(BASE_DIR, "captures")
 if not os.path.exists(CAPTURE_DIR): os.makedirs(CAPTURE_DIR)
 
 app = Flask(__name__, template_folder="web/templates", static_folder="web/static")
 
-# --- MACOS SUPPORT UTILS ---
+# --- MACOS SUPPORT ---
 class SerialSocketAdapter:
-    def __init__(self, serial_port):
-        self.ser = serial_port
-    
-    def recv(self, bufsize):
-        return self.ser.read(bufsize)
-        
-    def sendall(self, data):
-        self.ser.write(data)
-        
-    def close(self):
-        self.ser.close()
+    def __init__(self, serial_port): self.ser = serial_port
+    def recv(self, bufsize): return self.ser.read(bufsize)
+    def sendall(self, data): self.ser.write(data)
+    def close(self): self.ser.close()
 
 def find_macos_port():
     patterns = ["/dev/cu.*pi*", "/dev/cu.*Serial*", "/dev/cu.*Artemis*"]
     candidates = []
-    for p in patterns:
-        candidates.extend(glob.glob(p))
+    for p in patterns: candidates.extend(glob.glob(p))
     candidates = [c for c in candidates if "Bluetooth-Incoming" not in c and "wlan" not in c]
-    if candidates: return candidates[0]
-    return None
+    return candidates[0] if candidates else None
 
 @app.after_request
 def after_request(response):
@@ -58,7 +51,6 @@ def after_request(response):
     response.headers.add('X-Accel-Buffering', 'no')
     return response
 
-# Global State
 telemetry_data = {"status": "CONNECTING...", "sys": {}, "cam_meta": {}}
 bt_sock = None
 data_lock = threading.Lock()
@@ -67,105 +59,68 @@ def bt_client_thread():
     global bt_sock, telemetry_data
     if sys.platform == "darwin":
         try: import serial
-        except ImportError:
-            print("CRITICAL: pyserial missing. Run: uv pip install pyserial")
-            return
-
+        except ImportError: return
     while True:
         try:
             s = None
             if sys.platform == "darwin":
                 port = find_macos_port()
                 if port:
-                    print(f"[GS] Connecting to macOS Serial: {port}...")
-                    ser = serial.Serial(port, 115200, timeout=1) 
+                    ser = serial.Serial(port, 115200, timeout=1)
                     s = SerialSocketAdapter(ser)
-                else:
-                    time.sleep(2); continue
+                else: time.sleep(2); continue
             else:
                 s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
                 s.connect((PI_BT_MAC, 1))
-            
-            with data_lock: 
+            with data_lock:
                 bt_sock = s
                 telemetry_data["status"] = "ONLINE"
-            
             while True:
                 header = s.recv(8)
-                if not header or len(header) < 8: 
-                    if len(header) == 0: break 
-                    continue 
-                
+                if not header or len(header) < 8: break
                 type_bytes, length = struct.unpack("!4sI", header)
                 payload = b''
                 while len(payload) < length:
                     chunk = s.recv(length - len(payload))
                     if not chunk: break
                     payload += chunk
-                
                 try:
                     new_data = json.loads(payload.decode('utf-8'))
                     new_data["status"] = "ONLINE"
-                    
-                    # --- SMART INPUT VOLTAGE ESTIMATION ---
-                    power = new_data.get('power', {})
-                    if power.get('plugged'):
-                        bat_v = float(power.get('voltage', 0))
-                        bat_i = float(power.get('current', 0)) # Amps
-                        
-                        # Solar Logic: 
-                        # If battery is low (<4.0V) and charging current is low (<0.1A), 
-                        # the source has likely collapsed to (Battery Voltage + Diode Drop + Overhead)
-                        # We approximate this overhead as ~0.25V
-                        
-                        if bat_v < 4.0 and bat_i < 0.1:
-                            est_input = bat_v + 0.25
-                        else:
-                            # Standard USB usually stays near 5V
-                            est_input = 5.05
-                            
-                        # Sanity Check: Input must be > Battery to be 'Plugged'
-                        est_input = max(est_input, bat_v + 0.1)
-                            
-                        new_data['power']['input_est'] = round(est_input, 2)
-                        
-                        # Calculate Watts if missing
-                        if 'watts' not in new_data['power'] or new_data['power']['watts'] == 0:
-                             new_data['power']['watts'] = round(est_input * max(0.05, bat_i), 2)
-                    else:
-                        new_data['power']['input_est'] = 0.0
-                        new_data['power']['watts'] = 0.0
-                    
+                    if new_data.get('power', {}).get('plugged'):
+                        bat_v = float(new_data['power'].get('voltage', 0))
+                        new_data['power']['input_est'] = round(bat_v + 0.25, 2)
                     with data_lock: telemetry_data = new_data
-                except json.JSONDecodeError: pass
-                    
-        except Exception as e:
-            print(f"[GS] BT Error: {e}")
-            with data_lock: telemetry_data["status"] = "BT LOST"
-            if bt_sock: 
-                try: bt_sock.close()
                 except: pass
-                bt_sock = None
+        except:
+            with data_lock: telemetry_data["status"] = "BT LOST"
             time.sleep(2)
 
 threading.Thread(target=bt_client_thread, daemon=True).start()
 
 @app.route('/')
-def index():
-    return render_template('dashboard.html')
+def index(): return render_template('dashboard.html')
 
 @app.route('/api/telemetry')
 def api_telemetry():
     with data_lock: return jsonify(telemetry_data)
 
-@app.route('/telemetry_stream')
-def telemetry_stream():
-    def event_stream():
-        while True:
-            with data_lock: json_data = json.dumps(telemetry_data)
-            yield f"data: {json_data}\n\n"
-            time.sleep(0.25)
-    return Response(event_stream(), mimetype='text/event-stream')
+@app.route('/api/analyze/<filename>', methods=['POST'])
+def run_analysis(filename):
+    """Manually triggers the lunar landing analyzer for a specific file."""
+    if not analyze_image:
+        return jsonify({"status": "error", "message": "Analyzer libraries not loaded"}), 500
+    
+    file_path = os.path.join(CAPTURE_DIR, filename)
+    if not os.path.exists(file_path):
+        return jsonify({"status": "error", "message": "File not found"}), 404
+
+    try:
+        # Run the SciPy-heavy algorithm
+        output_path = analyze_image(file_path, output_dir=CAPTURE_DIR)
+        return jsonify({"status": "success", "analysis_file": os.path.basename(output_path)})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/stream')
 def proxy_video():
@@ -192,7 +147,7 @@ def proxy_snapshot():
             }
             with open(os.path.join(CAPTURE_DIR, f"{base_fn}.json"), 'w') as f: json.dump(metadata, f, indent=4)
             return jsonify({"status": "success", "file": img_fn, "pose": pose})
-    except Exception as e: print(f"[GS] Snapshot Failed: {e}")
+    except: pass
     return jsonify({"status": "error"}), 500
 
 @app.route('/api/captures')
@@ -208,24 +163,18 @@ def serve_capture(filename):
 
 @app.route('/api/clock', methods=['POST'])
 def proxy_clock():
-    try:
-        requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/api/clock", json=request.json, timeout=3)
-        return jsonify({"status": "proxied"})
-    except Exception as e: return jsonify({"status": "error", "msg": str(e)}), 502
+    requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/api/clock", json=request.json, timeout=3)
+    return jsonify({"status": "proxied"})
 
 @app.route('/api/i2c', methods=['POST'])
 def proxy_i2c():
-    try:
-        requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/api/i2c", json=request.json, timeout=3)
-        return jsonify({"status": "proxied"})
-    except Exception as e: return jsonify({"status": "error", "msg": str(e)}), 502
+    requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/api/i2c", json=request.json, timeout=3)
+    return jsonify({"status": "proxied"})
 
 @app.route('/api/power', methods=['POST'])
 def proxy_power():
-    try:
-        requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/api/power", json=request.json, timeout=3)
-        return jsonify({"status": "proxied"})
-    except Exception as e: return jsonify({"status": "error", "msg": str(e)}), 502
+    requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/api/power", json=request.json, timeout=3)
+    return jsonify({"status": "proxied"})
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000, threaded=True)

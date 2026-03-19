@@ -4,98 +4,40 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Artemis Engineering Console</title>
-    <!-- Three.js for 3D -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- Chart.js for Plots -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         :root { --bg: #050505; --panel: #111; --border: #333; --text: #00ff41; --dim: #00661a; --warn: #ffcc00; --alert: #ff0000; }
-        body { background: var(--bg); color: var(--text); font-family: 'Consolas', 'Courier New', monospace; padding: 5px; margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; }
+        body { background: var(--bg); color: var(--text); font-family: 'Consolas', 'Courier New', monospace; padding: 10px; margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; }
         
-        header { display: flex; justify-content: space-between; border-bottom: 2px solid var(--text); margin-bottom: 5px; padding-bottom: 2px; font-size: 0.9em; }
+        header { display: flex; justify-content: space-between; border-bottom: 2px solid var(--text); margin-bottom: 10px; padding-bottom: 5px; }
+        .main-grid { display: grid; grid-template-columns: 260px 1fr 260px; gap: 10px; flex-grow: 1; min-height: 0; }
+        .col { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
         
-        .main-grid { 
-            display: grid; 
-            grid-template-columns: 240px 1fr 240px 240px; 
-            grid-template-rows: 1fr; 
-            gap: 5px; 
-            flex-grow: 1; 
-            min-height: 0; 
-        }
-        .col { display: flex; flex-direction: column; gap: 5px; overflow-y: auto; }
+        .panel { background: var(--panel); border: 1px solid var(--border); padding: 8px; }
+        h2 { margin: 0 0 5px 0; font-size: 0.9em; color: #fff; border-bottom: 1px solid var(--dim); text-transform: uppercase; letter-spacing: 1px; }
         
-        .panel { background: var(--panel); border: 1px solid var(--border); padding: 5px; }
-        h2 { margin: 0 0 3px 0; font-size: 0.8em; color: #fff; border-bottom: 1px solid var(--dim); text-transform: uppercase; letter-spacing: 1px; }
-        
-        .data-row { display: flex; justify-content: space-between; font-size: 0.75em; margin-bottom: 2px; }
+        .data-row { display: flex; justify-content: space-between; font-size: 0.8em; margin-bottom: 3px; }
         .data-val { font-weight: bold; color: #fff; }
         
-        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px; text-align: center; margin-bottom: 2px; }
-        .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 2px; text-align: center; margin-bottom: 2px; }
-        .sensor-box { background: #000; border: 1px solid var(--border); padding: 2px; }
-        .lbl { display: block; font-size: 0.6em; color: #888; }
-        .val { font-size: 0.8em; font-weight: bold; }
+        .vid-container { flex-grow: 1; background: #000; border: 1px solid var(--border); position: relative; display: flex; align-items: center; justify-content: center; }
+        img.main-feed { max-width: 100%; max-height: 100%; }
+        .overlay { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 5px; font-size: 0.8em; border: 1px solid var(--dim); }
 
-        .vid-container { 
-            flex-grow: 1; 
-            background: #080808; 
-            border: 1px solid var(--border); 
-            position: relative; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
-            min-height: 0; 
-            overflow: hidden; 
-        }
-        img.live-feed { width: 100%; height: 100%; object-fit: contain; display: block; }
-        .overlay { position: absolute; top: 5px; left: 5px; background: rgba(0,0,0,0.7); padding: 3px; font-size: 0.7em; border: 1px solid var(--dim); pointer-events: none; }
-
-        .bar-bg { width: 100%; height: 4px; background: #222; margin-top: 1px; margin-bottom: 3px; }
+        .bar-bg { width: 100%; height: 6px; background: #222; margin-top: 2px; }
         .bar-fill { height: 100%; background: var(--text); width: 0%; transition: width 0.2s; }
-        .bar-warn { background: var(--warn); }
-        .bar-alert { background: var(--alert); }
-        
-        .badge { display: inline-block; padding: 1px 4px; border-radius: 2px; font-size: 0.65em; margin-right: 2px; background: #222; color: #888; cursor: pointer; }
-        .badge:hover { background: #444; }
-        .badge.active { background: var(--alert); color: #fff; font-weight: bold; cursor: default; }
 
-        .btn { background: var(--panel); border: 1px solid var(--text); color: var(--text); width: 100%; padding: 8px; cursor: pointer; font-weight: bold; margin-top: 2px; font-size: 0.8em; user-select: none; }
+        .btn { background: var(--panel); border: 1px solid var(--text); color: var(--text); width: 100%; padding: 10px; cursor: pointer; font-weight: bold; margin-top: 5px; }
         .btn:hover { background: var(--dim); color: #fff; }
-        .btn:active { background: var(--text); color: #000; }
-        .btn-hold.active { background: #ffcc00; color: #000; border-color: #ffcc00; }
         
-        table { width: 100%; border-collapse: collapse; font-size: 0.7em; }
-        th { text-align: left; color: #888; border-bottom: 1px solid #333; }
-        td { padding: 1px 0; }
-        
-        .gallery-panel { height: 100px; display: flex; flex-direction: column; overflow: hidden; margin-top: 5px; }
-        .gallery-strip { flex-grow: 1; display: flex; gap: 5px; overflow-x: auto; padding: 2px; background: #080808; border-top: 1px solid #333; align-items: center; }
-        .thumb { height: 100%; border: 1px solid #444; cursor: pointer; transition: transform 0.1s, border-color 0.1s; aspect-ratio: 16/9; object-fit: cover; }
-        .thumb:hover { transform: scale(1.05); border-color: var(--text); }
+        .thumb-container { position: relative; height: 100%; min-width: 100px; aspect-ratio: 16/9; }
+        .thumb { height: 100%; width: 100%; object-fit: cover; border: 1px solid #444; cursor: pointer; }
+        .analyze-badge { position: absolute; bottom: 2px; right: 2px; background: #00ff41; color: #000; font-size: 10px; padding: 2px 4px; border-radius: 2px; cursor: pointer; font-weight: bold; opacity: 0.8; }
+        .analyze-badge:hover { opacity: 1; transform: scale(1.1); }
 
-        /* INSPECTOR LIGHTBOX STYLES */
-        #lightbox { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 1000; justify-content: center; align-items: center; flex-direction: column; }
-        .lightbox-wrapper { display: flex; background: #111; border: 1px solid var(--text); max-width: 90%; max-height: 85%; box-shadow: 0 0 30px rgba(0,255,65,0.2); }
-        #lightbox-img { max-width: 65vw; max-height: 80vh; border-right: 1px solid var(--border); display: block; object-fit: contain; background: #000; }
-        
-        .lightbox-sidebar { width: 280px; padding: 15px; overflow-y: auto; background: #080808; display: flex; flex-direction: column; }
-        .lightbox-sidebar h3 { color: var(--text); border-bottom: 1px solid var(--dim); margin-top: 0; padding-bottom: 5px; font-size: 1em; letter-spacing: 1px; }
-        .meta-group { margin-bottom: 15px; }
-        .meta-label { color: #888; font-size: 0.7em; margin-bottom: 2px; text-transform: uppercase; }
-        .meta-val { color: #fff; font-size: 0.9em; font-weight: bold; border-bottom: 1px solid #222; padding-bottom: 2px; display: flex; justify-content: space-between; }
-        .meta-sub { font-size: 0.8em; color: #aaa; font-family: monospace; }
-        
-        #lightbox-close { margin-top: 15px; color: #fff; cursor: pointer; font-size: 1em; text-decoration: underline; opacity: 0.7; }
-        #lightbox-close:hover { opacity: 1; color: var(--text); }
-        
-        #container-3d { width: 100%; height: 180px; background: #000; border: 1px solid var(--border); margin-bottom: 5px; }
-        .chart-container { position: relative; height: 100px; width: 100%; margin-bottom: 5px; }
-        
-        input[type="number"] {
-            background: #222; border: 1px solid #444; color: #fff; padding: 1px 3px; font-family: monospace; font-size: 0.8em;
-        }
+        /* Lightbox */
+        #lightbox { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:1000; align-items:center; justify-content:center; }
+        .lb-content { display: flex; background: #111; border: 1px solid var(--text); max-width: 90%; max-height: 90%; }
+        .lb-sidebar { width: 250px; padding: 15px; border-left: 1px solid #333; }
     </style>
 </head>
 <body>
@@ -105,726 +47,146 @@
     </header>
 
     <div class="main-grid">
-        <!-- COL 1: DYNAMICS -->
         <div class="col">
             <div class="panel">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <h2>Orientation (3D)</h2>
-                    <div style="display:flex; gap:5px;">
-                        <button class="badge" style="border:1px solid #666; font-size:0.7em;" onclick="clearGhosts()">CLR TRACE</button>
-                        <button class="badge" style="border:1px solid #666; font-size:0.7em;" onclick="calibrateIMU()">RESET REF</button>
-                    </div>
-                </div>
-                <div id="container-3d"></div>
-                <div class="data-row" style="font-size:0.6em; color:#666;">DEBUG Q: <span id="debug-q">0,0,0,0</span></div>
+                <h2>Attitude & Motion</h2>
                 <div class="data-row"><span>HEADING</span><span class="data-val" id="att-yaw">0°</span></div>
                 <div class="data-row"><span>PITCH</span><span class="data-val" id="att-pitch">0°</span></div>
                 <div class="data-row"><span>ROLL</span><span class="data-val" id="att-roll">0°</span></div>
+                <div class="data-row" style="margin-top:5px; border-top:1px solid #333;"><span>TOTAL G</span><span class="data-val" id="total-g">1.00</span></div>
             </div>
-            
-            <div class="panel">
-                <h2>Quaternion</h2>
-                <div class="grid-4">
-                    <div class="sensor-box"><span class="lbl">W</span><span class="val" id="qw">0.00</span></div>
-                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="qx">0.00</span></div>
-                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="qy">0.00</span></div>
-                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="qz">0.00</span></div>
-                </div>
-            </div>
-
-            <div class="panel">
-                <h2>Accelerometer</h2>
-                <div class="chart-container" style="height: 60px;">
-                    <canvas id="chart-accel"></canvas>
-                </div>
-                <div class="grid-3">
-                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="ax">0.0</span></div>
-                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="ay">0.0</span></div>
-                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="az">0.0</span></div>
-                </div>
-            </div>
-
-            <div class="panel">
-                <h2>Gyroscope</h2>
-                <div class="grid-3">
-                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="gx">0.0</span></div>
-                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="gy">0.0</span></div>
-                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="gz">0.0</span></div>
-                </div>
-            </div>
-
-            <div class="panel">
-                <h2>Magnetometer</h2>
-                <div class="grid-3">
-                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="mx">0.0</span></div>
-                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="my">0.0</span></div>
-                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="mz">0.0</span></div>
-                </div>
-            </div>
-
-            <div class="panel">
-                <h2>Motion</h2>
-                <div class="data-row"><span>STATE</span><span class="data-val" id="motion-state">--</span></div>
-                <div class="data-row" style="margin-top:5px; border-top:1px solid #333; padding-top:2px;"><span>TOTAL G</span><span class="data-val" id="total-g">1.00</span></div>
-                <div class="data-row"><span>JERK (m/s³)</span><span class="data-val" id="jerk">0.0</span></div>
-            </div>
-        </div>
-
-        <!-- COL 2: OPTICAL & CONTROLS -->
-        <div class="col" style="min-width: 0;">
-            <div class="vid-container">
-                <!-- FIX: Point to /stream for MJPEG tunneling -->
-                <img class="live-feed" src="/stream" alt="NO SIGNAL" onerror="console.log('Stream Error')">
-                <div class="overlay">LIVE OPTICAL FEED [720p]</div>
-            </div>
-            
-            <!-- CAPTURE CONTROLS -->
-            <div style="display: flex; gap: 5px; margin-top: 2px;">
-                <button class="btn" style="flex: 2;" onclick="snap(0)">ACQUIRE (5MP)</button>
-                <button id="btn-long-exp" class="btn btn-hold" style="flex: 1; border-color: #ffcc00; color: #ffcc00;" 
-                    onmousedown="startLongExp()" onmouseup="stopLongExp()" onmouseleave="stopLongExp()"
-                    ontouchstart="startLongExp()" ontouchend="stopLongExp()">
-                    LONG EXP (HOLD)
-                </button>
-            </div>
-
-            <div class="panel gallery-panel">
-                <h2>Mission Gallery</h2>
-                <div id="gallery" class="gallery-strip"></div>
-            </div>
-        </div>
-
-        <!-- COL 3: MISSION SYSTEMS -->
-        <div class="col">
             <div class="panel">
                 <h2>Health & Power</h2>
-                <!-- BATTERY SECTION -->
-                <div class="data-row" style="border-bottom:1px dashed #333; margin-bottom:4px; padding-bottom:4px;">
-                    <span>BATTERY</span><span class="data-val"><span id="bat-level">0%</span> (<span id="bat-charging">DISCHG</span>)</span>
-                </div>
-                <div class="bar-bg" style="margin-top:-2px; margin-bottom:5px;"><div id="bar-bat" class="bar-fill" style="width:0%"></div></div>
-                <div class="data-row"><span>BAT VOLTS</span><span class="data-val" id="bat-volts">0.00 V</span></div>
-                
-                <!-- INPUT ROW (VOLTS & WATTS) -->
-                <div class="data-row"><span>INPUT (SOLAR)</span><span class="data-val" id="bat-input">-- V / -- W</span></div>
-                
-                <div class="data-row"><span>BAT TEMP</span><span class="data-val" id="bat-temp">0°C</span></div>
-                <div class="data-row" style="margin-bottom:8px;"><span>PLUGGED IN</span><span class="data-val" id="bat-plugged">NO</span></div>
-                
-                <!-- POWER CONTROLS -->
-                <div class="data-row" style="justify-content:space-between; align-items:center; margin-bottom:8px;">
-                    <span>CONTROL</span>
-                    <div style="display:flex; gap:3px;">
-                        <button class="badge" id="btn-chg" style="border:1px solid #444;" onclick="toggleCharging()">CHG: ON</button>
-                    </div>
-                </div>
-
-                <div class="data-row"><span>CORE VOLTS</span><span class="data-val" id="cpu-volts">0.00 V</span></div>
-                <div class="data-row"><span>CPU CLOCK</span><span class="data-val" id="cpu-clock">0 MHz</span></div>
-                
-                <!-- CPU SPEED CONTROLS -->
-                <div class="data-row" style="justify-content:space-between; align-items:center;">
-                    <span>SPEED CTRL</span>
-                    <div style="display:flex; gap:3px;">
-                        <button class="badge" style="border:1px solid #444;" onclick="setClock('powersave')">ECO</button>
-                        <button class="badge" style="border:1px solid #444;" onclick="setClock('ondemand')">AUTO</button>
-                        <button class="badge" style="border:1px solid #444;" onclick="setClock('performance')">MAX</button>
-                    </div>
-                </div>
-                
-                <!-- I2C SPEED CONTROLS -->
-                <div class="data-row" style="justify-content:space-between; align-items:center; margin-top:2px;">
-                    <span>I2C CLOCK</span>
-                    <div style="display:flex; gap:3px;">
-                        <input type="number" id="i2c-input" value="400000" style="width:70px;">
-                        <button class="badge" style="border:1px solid #444;" onclick="setI2C(document.getElementById('i2c-input').value)">SET</button>
-                    </div>
-                </div>
-
-                <div class="data-row" style="margin-top:5px;"><span>THREADS</span><span class="data-val" id="sys-threads">0</span></div>
-                <div class="data-row"><span>THROTTLE</span><span class="data-val" id="throttle-hex">0x0</span></div>
-                <div id="health-badges" style="margin-top:5px; display:flex; flex-wrap:wrap; gap:2px;">
-                    <span id="flag-uv" class="badge">UNDERVOLT</span>
-                    <span id="flag-freq" class="badge">FREQ_CAP</span>
-                    <span id="flag-throt" class="badge">THROTTLED</span>
-                    <span id="flag-temp" class="badge">OVERHEAT</span>
-                </div>
-            </div>
-            <div class="panel">
-                <h2>Optical Sensor</h2>
-                <div class="data-row"><span>FPS / EXP</span><span class="data-val"><span id="cam-fps">0</span> / <span id="cam-exp">0ms</span></span></div>
-                <div class="data-row"><span>GAIN (A/D)</span><span class="data-val"><span id="cam-gain">1x</span> / <span id="cam-dgain">1x</span></span></div>
-                <div class="data-row"><span>AWB (R/B)</span><span class="data-val" id="cam-awb">--</span></div>
-                <div class="data-row"><span>AF STATE</span><span class="data-val" id="cam-lens">IDLE</span></div>
-                <div class="data-row"><span>RESOLUTION</span><span class="data-val" id="cam-res">--</span></div>
-            </div>
-            <div class="panel">
-                <h2>Network</h2>
-                <div class="data-row"><span>QUALITY</span><span class="data-val" id="link-qual">0%</span></div>
-                <div class="data-row"><span>RX</span><span class="data-val" id="net-rx">0.0 KB/s</span></div>
-                <div class="data-row"><span>TX</span><span class="data-val" id="net-tx">0.0 KB/s</span></div>
-                <div class="data-row"><span>WIFI RSSI</span><span class="data-val" id="wifi-rssi">0 dBm</span></div>
-                <div class="data-row"><span>RETRIES</span><span class="data-val" id="wifi-retry">0</span></div>
-                <div class="data-row"><span>MISSED</span><span class="data-val" id="wifi-missed">0</span></div>
-                <div class="data-row"><span>BT RSSI</span><span class="data-val" id="bt-rssi">0 dBm</span></div>
-                <div class="data-row"><span>IP ADDR</span><span class="data-val" id="ip-addr">--</span></div>
+                <div class="data-row"><span>INPUT EST</span><span class="data-val" id="bat-input">0.00 V</span></div>
             </div>
         </div>
 
-        <!-- COL 4: DIAGNOSTICS & EXPANSION -->
+        <div class="col">
+            <div class="vid-container">
+                <img class="main-feed" src="/stream" onerror="this.style.display='none'">
+                <div class="overlay">LIVE OPTICAL FEED [720p]</div>
+            </div>
+            <button class="btn" onclick="snap()">ACQUIRE HIGH-RES TARGET (5MP)</button>
+            <div id="gallery" style="height:100px; background:#000; border:1px solid var(--border); display:flex; gap:8px; overflow-x:auto; padding:8px;"></div>
+        </div>
+
         <div class="col">
             <div class="panel">
-                <h2>Thermals & Load</h2>
-                <div class="data-row"><span>CPU LOAD</span><span class="data-val" id="cpu-load">0%</span></div>
-                <div class="bar-bg"><div id="bar-load" class="bar-fill" style="width:0%"></div></div>
-                <div class="data-row"><span>CPU TEMP</span><span class="data-val" id="cpu-temp">0C</span></div>
-                <div class="bar-bg"><div id="bar-temp" class="bar-fill" style="width:0%"></div></div>
-                <div class="data-row"><span>IMU TEMP</span><span class="data-val" id="imu-temp">0C</span></div>
-            </div>
-            <div class="panel">
-                <h2>Memory & Storage</h2>
-                <div class="data-row"><span>RAM USE</span><span class="data-val" id="ram-use">0 / 0 MB</span></div>
-                <div class="bar-bg"><div id="bar-ram" class="bar-fill" style="width:0%"></div></div>
-                <div class="data-row"><span>GPU MEM</span><span class="data-val" id="gpu-mem">0M</span></div>
-                <div class="data-row" style="margin-top:2px;"><span>DISK USE</span><span class="data-val" id="disk-use">0 / 0 GB</span></div>
-                <div class="bar-bg"><div id="bar-disk" class="bar-fill" style="width:0%"></div></div>
-                <div class="data-row" style="margin-top:2px;"><span>CAPACITY</span><span class="data-val" id="img-cap">~0 SHOTS</span></div>
-            </div>
-            <div class="panel">
-                <h2>Top Processes</h2>
-                <table>
-                    <thead><tr><th>PID</th><th>NAME</th><th>CPU</th><th>MEM</th></tr></thead>
-                    <tbody id="proc-list"></tbody>
-                </table>
-            </div>
-            <div class="panel" style="margin-top: 10px;">
-               <div class="data-row"><span>UPTIME</span><span class="data-val" id="uptime">0s</span></div>
+                <h2>Optical Sensor</h2>
+                <div class="data-row"><span>EXPOSURE</span><span class="data-val" id="cam-exp">0 ms</span></div>
+                <div class="data-row"><span>AF STATE</span><span class="data-val" id="cam-lens">IDLE</span></div>
             </div>
         </div>
     </div>
 
-    <!-- METADATA INSPECTOR LIGHTBOX -->
     <div id="lightbox" onclick="closeLightbox()">
-        <div class="lightbox-wrapper" onclick="event.stopPropagation()">
-            <img id="lightbox-img" src="">
-            <div class="lightbox-sidebar">
-                <h3>FLIGHT DATA LOG</h3>
-                <div id="meta-content" style="padding-top:10px;">
-                    <div class="meta-group">
-                        <div class="meta-label">Capture Time</div>
-                        <div class="meta-val" id="meta-time">--:--:--</div>
-                        <div class="meta-sub" id="meta-date">YYYY-MM-DD</div>
-                    </div>
-                    <div class="meta-group">
-                        <div class="meta-label">Exposure Time</div>
-                        <div class="meta-val" id="meta-exp">0.00 s</div>
-                    </div>
-                    <div class="meta-group">
-                        <div class="meta-label">Pose Quaternion (W,X,Y,Z)</div>
-                        <div class="meta-val" style="display:block; font-size:0.8em; font-family:monospace; line-height:1.4;">
-                            <span id="meta-qw">1.000</span>, <span id="meta-qx">0.000</span><br>
-                            <span id="meta-qy">0.000</span>, <span id="meta-qz">0.000</span>
-                        </div>
-                    </div>
-                    <div class="meta-group">
-                        <div class="meta-label">Acceleration (m/s²)</div>
-                        <div class="meta-val" id="meta-accel">0.0, 0.0, 0.0</div>
-                    </div>
-                </div>
+        <div class="lb-content" onclick="event.stopPropagation()">
+            <img id="lb-img" style="max-width: 70vw; max-height: 80vh; object-fit: contain;">
+            <div class="lb-sidebar">
+                <h2 id="lb-title">MISSION SNAPSHOT</h2>
+                <div id="lb-meta" style="font-size: 0.8em; margin-bottom: 20px;"></div>
+                <button class="btn" id="btn-toggle-map" onclick="toggleMap()">VIEW HAZARD MAP</button>
+                <button class="btn" style="border-color:#666; color:#888;" onclick="closeLightbox()">CLOSE</button>
             </div>
         </div>
-        <div id="lightbox-close">CLICK OUTSIDE TO CLOSE</div>
     </div>
 
     <script>
-        // --- 3D SETUP ---
-        const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(50, 240/180, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-        renderer.setSize(230, 180);
-        document.getElementById('container-3d').appendChild(renderer.domElement);
+        let currentImg = "";
+        let showingMap = false;
 
-        // Lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-        scene.add(ambientLight);
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        dirLight.position.set(5, 10, 7);
-        scene.add(dirLight);
-
-        // --- CUBE MODEL ---
-        const materials = [
-            new THREE.MeshPhongMaterial({ color: 0xff4444 }), // Right (+X)
-            new THREE.MeshPhongMaterial({ color: 0xaa2222 }), // Left (-X)
-            new THREE.MeshPhongMaterial({ color: 0x44ff44 }), // Top (+Y)
-            new THREE.MeshPhongMaterial({ color: 0x888888 }), // Bottom (-Y) [CAMERA]
-            new THREE.MeshPhongMaterial({ color: 0x4444ff }), // Front (+Z) [PORTS]
-            new THREE.MeshPhongMaterial({ color: 0x2222aa })  // Back (-Z)
-        ];
-        
-        const geometry = new THREE.BoxGeometry(1.5, 1.5, 1.5);
-        const cube = new THREE.Mesh(geometry, materials);
-        scene.add(cube);
-
-        // Indicators
-        const lensGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.2, 32);
-        const lensMat = new THREE.MeshPhongMaterial({ color: 0x222222 }); 
-        const lens = new THREE.Mesh(lensGeo, lensMat);
-        lens.position.y = -0.8; 
-        cube.add(lens);
-
-        const axesHelper = new THREE.AxesHelper(2.5);
-        cube.add(axesHelper);
-
-        camera.position.set(0, 2, 4);
-        camera.lookAt(0, 0, 0);
-
-        // --- GHOST CAMERA GROUP ---
-        const ghosts = new THREE.Group();
-        scene.add(ghosts);
-
-        function addCaptureMarker(quatArray) {
-            console.log("[3D] Adding Ghost...", quatArray); // DEBUG LOG
-            const frustumGeo = new THREE.ConeGeometry(0.3, 0.5, 4, 1);
-            const frustumMat = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true });
-            const marker = new THREE.Mesh(frustumGeo, frustumMat);
-            
-            const q = new THREE.Quaternion(quatArray[2], quatArray[3], quatArray[1], quatArray[0]);
-            
-            // Apply Calibrated Offset
-            const calibratedQ = offsetQuaternion.clone().multiply(q);
-            
-            const direction = new THREE.Vector3(0, -1, 0); 
-            direction.applyQuaternion(calibratedQ);
-            
-            marker.position.copy(direction.multiplyScalar(3.5));
-            marker.quaternion.copy(calibratedQ);
-            
-            ghosts.add(marker);
-        }
-        
-        function clearGhosts() {
-            ghosts.clear();
-        }
-
-        function animate3D() {
-            requestAnimationFrame(animate3D);
-            renderer.render(scene, camera);
-        }
-        animate3D();
-
-        // --- CHART SETUP ---
-        const ctxAccel = document.getElementById('chart-accel').getContext('2d');
-        const chartAccel = new Chart(ctxAccel, {
-            type: 'line',
-            data: {
-                labels: Array(50).fill(''),
-                datasets: [
-                    { label: 'X', data: Array(50).fill(0), borderColor: '#ff4444', borderWidth: 1, pointRadius: 0, tension: 0.1 },
-                    { label: 'Y', data: Array(50).fill(0), borderColor: '#44ff44', borderWidth: 1, pointRadius: 0, tension: 0.1 },
-                    { label: 'Z', data: Array(50).fill(0), borderColor: '#4444ff', borderWidth: 1, pointRadius: 0, tension: 0.1 }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: false,
-                scales: {
-                    x: { display: false },
-                    y: { 
-                        grid: { color: '#222' }, 
-                        ticks: { color: '#666', font: {size: 9} },
-                        suggestedMin: -10,
-                        suggestedMax: 10
-                    }
-                },
-                plugins: { legend: { display: false } }
-            }
-        });
-
-        // --- MAIN UI ---
-        const ui = {
-            conn: document.getElementById('conn-status'),
-            att_yaw: document.getElementById('att-yaw'), 
-            att_pitch: document.getElementById('att-pitch'), 
-            att_roll: document.getElementById('att-roll'),
-            ax: document.getElementById('ax'), ay: document.getElementById('ay'), az: document.getElementById('az'),
-            gx: document.getElementById('gx'), gy: document.getElementById('gy'), gz: document.getElementById('gz'),
-            mx: document.getElementById('mx'), my: document.getElementById('my'), mz: document.getElementById('mz'),
-            qw: document.getElementById('qw'), qx: document.getElementById('qx'), qy: document.getElementById('qy'), qz: document.getElementById('qz'),
-            debug_q: document.getElementById('debug-q'),
-            total_g: document.getElementById('total-g'), jerk: document.getElementById('jerk'), motion_state: document.getElementById('motion-state'),
-            cam_fps: document.getElementById('cam-fps'), cam_exp: document.getElementById('cam-exp'),
-            cam_gain: document.getElementById('cam-gain'), cam_dgain: document.getElementById('cam-dgain'),
-            cam_awb: document.getElementById('cam-awb'), cam_lens: document.getElementById('cam-lens'), cam_res: document.getElementById('cam-res'),
-            net_rx: document.getElementById('net-rx'), net_tx: document.getElementById('net-tx'), link_qual: document.getElementById('link-qual'),
-            wifi_rssi: document.getElementById('wifi-rssi'), wifi_retry: document.getElementById('wifi-retry'), 
-            wifi_missed: document.getElementById('wifi-missed'), bt_rssi: document.getElementById('bt-rssi'), ip_addr: document.getElementById('ip-addr'),
-            cpu_volts: document.getElementById('cpu-volts'), cpu_clock: document.getElementById('cpu-clock'), est_power: document.getElementById('est-power'),
-            throttle_hex: document.getElementById('throttle-hex'), sys_threads: document.getElementById('sys-threads'),
-            cpu_load: document.getElementById('cpu-load'), cpu_temp: document.getElementById('cpu-temp'), imu_temp: document.getElementById('imu-temp'),
-            
-            // Battery Elements
-            bat_level: document.getElementById('bat-level'), bat_volts: document.getElementById('bat-volts'), 
-            bat_input: document.getElementById('bat-input'), bat_charging: document.getElementById('bat-charging'), 
-            bat_temp: document.getElementById('bat-temp'), bat_plugged: document.getElementById('bat-plugged'), bar_bat: document.getElementById('bar-bat'),
-            btn_chg: document.getElementById('btn-chg'),
-
-            ram_use: document.getElementById('ram-use'), gpu_mem: document.getElementById('gpu-mem'), disk_use: document.getElementById('disk-use'), img_cap: document.getElementById('img-cap'),
-            bar_load: document.getElementById('bar-load'), bar_temp: document.getElementById('bar-temp'), 
-            bar_ram: document.getElementById('bar-ram'), bar_disk: document.getElementById('bar-disk'),
-            proc_list: document.getElementById('proc-list'), gallery: document.getElementById('gallery'), uptime: document.getElementById('uptime')
-        };
-
-        const evtSource = new EventSource("/telemetry_stream");
-        let pendingData = null;
-        let offsetQuaternion = new THREE.Quaternion(); 
-        let lastReceivedQuaternion = new THREE.Quaternion();
-        let chargingState = true;
-
-        evtSource.onmessage = (e) => {
+        async function updateDisplay() {
             try {
-                pendingData = JSON.parse(e.data);
-                requestAnimationFrame(() => {
-                    if(pendingData) {
-                        updateDisplay(pendingData);
-                        pendingData = null;
-                    }
-                });
-            } catch(err) { console.error("Parse Error:", err); }
-        };
-        evtSource.onerror = () => { ui.conn.innerText = "RECONNECTING..."; ui.conn.style.color = "orange"; };
-
-        function calibrateIMU() {
-            offsetQuaternion.copy(lastReceivedQuaternion).invert();
-            console.log("Calibration set. Offset:", offsetQuaternion);
-        }
-
-        async function setClock(mode) {
-            try {
-                await fetch('/api/clock', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({mode: mode})
-                });
-            } catch(e) { console.error(e); }
-        }
-
-        async function setI2C(baud) {
-            try {
-                await fetch('/api/i2c', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({baudrate: parseInt(baud)})
-                });
-            } catch(e) { console.error(e); }
-        }
-
-        async function setPower(action, value) {
-            try {
-                if (action === 'shutdown') {
-                    if (!confirm("Confirm System Shutdown?")) return;
+                let res = await fetch('/api/telemetry');
+                let d = await res.json();
+                if(d.attitude) {
+                    document.getElementById('att-yaw').innerText = d.attitude.yaw.toFixed(0) + "°";
+                    document.getElementById('att-pitch').innerText = d.attitude.pitch.toFixed(0) + "°";
+                    document.getElementById('att-roll').innerText = d.attitude.roll.toFixed(0) + "°";
                 }
-                if (action === 'reboot') {
-                    if (!confirm("Confirm Hard Power Cycle? (15s delay)")) return;
-                    action = 'cycle';
-                }
-                await fetch('/api/power', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({action: action, value: value})
-                });
-            } catch(e) { console.error(e); }
-        }
-
-        function toggleCharging() {
-            chargingState = !chargingState;
-            setPower('charging', chargingState);
-            ui.btn_chg.innerText = chargingState ? "CHG: ON" : "CHG: OFF";
-            ui.btn_chg.style.color = chargingState ? "#fff" : "#ffcc00";
-        }
-
-        function formatUptime(seconds) {
-            const d = Math.floor(seconds / (3600*24));
-            const h = Math.floor((seconds % (3600*24)) / 3600);
-            const m = Math.floor((seconds % 3600) / 60);
-            const s = Math.floor(seconds % 60);
-            return `${d}d ${h}h ${m}m ${s}s`;
-        }
-
-        function updateDisplay(d) {
-            ui.conn.innerText = d.status || "OFFLINE";
-            ui.conn.style.color = (d.status === "ONLINE") ? "#00ff41" : "red";
-
-            if (d.quaternion) {
-                const q = d.quaternion;
-                lastReceivedQuaternion.set(q[2], q[3], q[1], q[0]); 
-                const displayQ = offsetQuaternion.clone().multiply(lastReceivedQuaternion);
-                cube.quaternion.slerp(displayQ, 0.5);
-                
-                if(ui.qw) ui.qw.innerText = q[0].toFixed(3);
-                if(ui.qx) ui.qx.innerText = q[1].toFixed(3);
-                if(ui.qy) ui.qy.innerText = q[2].toFixed(3);
-                if(ui.qz) ui.qz.innerText = q[3].toFixed(3);
-                if(ui.debug_q) ui.debug_q.innerText = `Raw: [${q[0].toFixed(2)}, ${q[1].toFixed(2)}, ${q[2].toFixed(2)}, ${q[3].toFixed(2)}]`;
-            } 
-            else if (d.attitude) {
-                const roll = d.attitude.roll * (Math.PI/180);
-                const pitch = d.attitude.pitch * (Math.PI/180);
-                const yaw = d.attitude.yaw * (Math.PI/180);
-                cube.rotation.set(pitch, yaw, roll);
-            }
-
-            if (d.attitude) {
-                ui.att_yaw.innerText = d.attitude.yaw.toFixed(0) + "°";
-                ui.att_pitch.innerText = d.attitude.pitch.toFixed(0) + "°";
-                ui.att_roll.innerText = d.attitude.roll.toFixed(0) + "°";
-            }
-
-            if (d.accel) {
-                ui.ax.innerText = d.accel.x.toFixed(2);
-                ui.ay.innerText = d.accel.y.toFixed(2);
-                ui.az.innerText = d.accel.z.toFixed(2);
-                chartAccel.data.datasets[0].data.shift(); chartAccel.data.datasets[0].data.push(d.accel.x);
-                chartAccel.data.datasets[1].data.shift(); chartAccel.data.datasets[1].data.push(d.accel.y);
-                chartAccel.data.datasets[2].data.shift(); chartAccel.data.datasets[2].data.push(d.accel.z);
-                chartAccel.update('none'); 
-            }
-
-            if (d.gyro) { 
-                ui.gx.innerText = d.gyro.x.toFixed(1);
-                ui.gy.innerText = d.gyro.y.toFixed(1);
-                ui.gz.innerText = d.gyro.z.toFixed(1);
-                const g_mag = Math.sqrt(d.gyro.x**2 + d.gyro.y**2 + d.gyro.z**2);
-                let state = "STATIONARY"; let color = "#00ff41";
-                if (g_mag > 150) { state = "TUMBLING"; color = "#ff0000"; }
-                else if (g_mag > 30) { state = "MANEUVERING"; color = "#ffcc00"; }
-                else if (g_mag > 2) { state = "STABLE"; color = "#0088ff"; }
-                ui.motion_state.innerText = state; ui.motion_state.style.color = color;
-            }
-
-            if (d.mag) {
-                ui.mx.innerText = d.mag.x.toFixed(0);
-                ui.my.innerText = d.mag.y.toFixed(0);
-                ui.mz.innerText = d.mag.z.toFixed(0);
-            }
-
-            if (d.total_g) ui.total_g.innerText = d.total_g;
-            if (d.jerk !== undefined) ui.jerk.innerText = d.jerk.toFixed(1);
-
-            if (d.cam_meta) {
-                if (d.cam_meta.res && d.cam_meta.res.includes('x')) {
-                    ui.cam_res.innerText = d.cam_meta.res; ui.cam_res.style.color = "#fff";
-                    ui.cam_fps.innerText = d.cam_meta.fps.toFixed(1);
-                    ui.cam_exp.innerText = d.cam_meta.exp_ms.toFixed(1) + "ms";
-                    ui.cam_gain.innerText = d.cam_meta.a_gain.toFixed(1) + "x";
-                    ui.cam_dgain.innerText = d.cam_meta.d_gain.toFixed(1) + "x";
-                    ui.cam_awb.innerText = `${d.cam_meta.awb_r.toFixed(1)}/${d.cam_meta.awb_b.toFixed(1)}`;
-                    ui.cam_lens.innerText = ["IDLE","SCAN","LOCK","FAIL"][d.cam_meta.af_state] || "IDLE";
-                } else {
-                    let status = d.cam_meta.res || "INIT";
-                    if(d.cam_meta.error) status = "ERR: " + d.cam_meta.error;
-                    ui.cam_res.innerText = status; ui.cam_res.style.color = "red";
-                }
-            }
-            
-            // --- POWER DATA UPDATE ---
-            if (d.power) {
-                if(ui.bat_level) ui.bat_level.innerText = d.power.level + "%";
-                if(ui.bat_volts) ui.bat_volts.innerText = d.power.voltage + " V";
-                
-                // FIXED: ALWAYS SHOW VOLTS/WATTS even if "weak"
-                if(ui.bat_input) {
-                    if (d.power.plugged) {
-                        const volts = d.power.input_est || 5.0; // Fallback
-                        const watts = d.power.watts || 0;
-                        ui.bat_input.innerText = `${volts} V / ${watts} W`;
-                        
-                        // Yellow tint if voltage < 4.5V (Solar/Sag)
-                        if (volts < 4.5) {
-                            ui.bat_input.style.color = "#ffcc00"; // Yellow warning
-                        } else {
-                            ui.bat_input.style.color = "#fff"; // Normal
-                        }
-                    } else {
-                        ui.bat_input.innerText = "UNPLUGGED";
-                        ui.bat_input.style.color = "#888";
-                    }
-                }
-
-                if(ui.bat_charging) {
-                    ui.bat_charging.innerText = d.power.charging ? "CHARGING" : "DISCHG";
-                    ui.bat_charging.style.color = d.power.charging ? "#00ff41" : "#ffcc00";
-                }
-                if(ui.bat_plugged) {
-                    ui.bat_plugged.innerText = d.power.plugged ? "YES" : "NO";
-                    ui.bat_plugged.style.color = d.power.plugged ? "#fff" : "#ff0000";
-                }
-                if(ui.bat_temp) ui.bat_temp.innerText = d.power.temp + "°C";
-                
-                // Update Battery Bar
-                if(ui.bar_bat) {
-                    ui.bar_bat.style.width = d.power.level + "%";
-                    if(d.power.level < 20) ui.bar_bat.className = "bar-fill bar-alert";
-                    else if(d.power.level < 50) ui.bar_bat.className = "bar-fill bar-warn";
-                    else ui.bar_bat.className = "bar-fill";
-                }
-                
-                // Sync Charging Button State
-                if (d.power.allow_charging !== undefined) {
-                    chargingState = d.power.allow_charging;
-                    ui.btn_chg.innerText = chargingState ? "CHG: ON" : "CHG: OFF";
-                    ui.btn_chg.style.color = chargingState ? "#fff" : "#ffcc00";
-                }
-            }
-
-            if (d.sys) {
-                const s = d.sys; 
-                
-                if(ui.cpu_volts) ui.cpu_volts.innerText = s.cpu_volts ? s.cpu_volts.toFixed(2) + " V" : "--";
-                if(ui.cpu_clock) ui.cpu_clock.innerText = s.cpu_clock + " MHz";
-                if(ui.throttle_hex) ui.throttle_hex.innerText = s.throttle_hex;
-                if(ui.sys_threads) ui.sys_threads.innerText = s.active_threads || 0;
-
-                if(ui.net_rx) ui.net_rx.innerText = (s.rx_kbps||0).toFixed(1) + " KB/s";
-                if(ui.net_tx) ui.net_tx.innerText = (s.tx_kbps||0).toFixed(1) + " KB/s";
-                
-                if(ui.wifi_rssi) ui.wifi_rssi.innerText = (s.wifi_dbm||0) + " dBm";
-                if(ui.link_qual && s.wifi_dbm) {
-                    let qual = Math.max(0, Math.min(100, (s.wifi_dbm + 90) * (100/60)));
-                    ui.link_qual.innerText = qual.toFixed(0) + "%";
-                    ui.link_qual.style.color = qual < 30 ? "red" : (qual < 60 ? "orange" : "#00ff41");
-                }
-                
-                if(ui.wifi_retry) ui.wifi_retry.innerText = s.wifi_retry || 0;
-                if(ui.wifi_missed) ui.wifi_missed.innerText = s.wifi_missed || 0;
-                if(ui.ip_addr) ui.ip_addr.innerText = s.ip_addr || "--";
-                
-                if(ui.cpu_load) ui.cpu_load.innerText = s.cpu_load + "%";
-                if(ui.bar_load) ui.bar_load.style.width = s.cpu_load + "%";
-                
-                if(ui.cpu_temp) ui.cpu_temp.innerText = s.cpu_temp + "C";
-                if(ui.bar_temp) {
-                    ui.bar_temp.style.width = Math.min((s.cpu_temp/85)*100, 100) + "%";
-                    ui.bar_temp.className = (s.cpu_temp > 80) ? "bar-fill bar-alert" : "bar-fill";
-                }
-                if(ui.imu_temp) ui.imu_temp.innerText = (s.imu_temp || 0) + "C";
-                
-                let watts = 3.0;
-                if(s.cpu_load) watts += (s.cpu_load / 100) * 3.5;
-                if (d.cam_meta && d.cam_meta.fps > 0) watts += 1.2;
-                if(ui.est_power) ui.est_power.innerText = "~" + watts.toFixed(1) + " W";
-
-                if(ui.ram_use && s.ram_total_mb) {
-                    ui.ram_use.innerText = `${s.ram_used_mb}/${s.ram_total_mb} MB`;
-                    if(ui.bar_ram) ui.bar_ram.style.width = (s.ram_percent||0) + "%";
-                }
-                if(ui.gpu_mem) ui.gpu_mem.innerText = s.gpu_mem || "0M";
-                
-                if(ui.disk_use && s.disk_total_gb) {
-                    ui.disk_use.innerText = `${s.disk_used_gb}/${s.disk_total_gb} GB`;
-                    if(ui.bar_disk) ui.bar_disk.style.width = (s.disk_percent||0) + "%";
-                    if (ui.img_cap) {
-                        const free = (s.disk_total_gb - s.disk_used_gb) * 1024;
-                        ui.img_cap.innerText = "~" + Math.floor(free / 4) + " SHOTS";
-                    }
-                }
-                
-                if(ui.uptime) {
-                    ui.uptime.innerText = formatUptime(s.uptime_script || 0);
-                }
-
-                const flags = s.throttle_flags || [];
-                const setBadge = (id, match) => {
-                    const el = document.getElementById(id);
-                    if(el) el.className = flags.includes(match) ? "badge active" : "badge";
-                };
-                setBadge('flag-throt', 'THROTTLED');
-                setBadge('flag-uv', 'UNDERVOLT');
-                
-                if (s.processes && s.processes.length > 0 && ui.proc_list) {
-                    let html = "";
-                    s.processes.forEach(p => {
-                        html += `<tr><td>${p.pid}</td><td>${p.name}</td><td>${p.cpu}%</td><td>${p.mem}%</td></tr>`;
-                    });
-                    ui.proc_list.innerHTML = html;
-                } else if(ui.proc_list) {
-                    ui.proc_list.innerHTML = "<tr><td colspan='4' style='text-align:center; color:#555'>-- NO DATA --</td></tr>";
-                }
-            }
-            if(d.rssi && ui.bt_rssi) ui.bt_rssi.innerText = d.rssi + " dBm";
-        }
-
-        async function snap(exposure=0) { 
-            try { 
-                let url = '/snapshot';
-                if (exposure > 0) url += `?exposure=${exposure.toFixed(2)}`;
-                
-                let res = await fetch(url, {method:'POST'}); 
-                let data = await res.json();
-                
-                if(data.pose) {
-                    addCaptureMarker(data.pose);
-                }
-                setTimeout(loadGal, 500); 
-            } catch(e) {} 
-        }
-        
-        async function loadGal() {
-            try {
-                const res = await fetch('/api/captures');
-                const files = await res.json();
-                ui.gallery.innerHTML = "";
-                files.forEach(f => {
-                    const img = document.createElement('img');
-                    img.src = `/captures/${f}?t=${Date.now()}`;
-                    img.className = "thumb";
-                    // Modified: Open Lightbox instead of window.open
-                    img.onclick = () => openLightbox(img.src);
-                    ui.gallery.appendChild(img);
-                });
+                if(d.total_g) document.getElementById('total-g').innerText = d.total_g;
+                if(d.power && d.power.input_est) document.getElementById('bat-input').innerText = d.power.input_est + " V";
+                document.getElementById('conn-status').innerText = d.status || "OFFLINE";
+                document.getElementById('conn-status').style.color = (d.status === "ONLINE") ? "#00ff41" : "red";
             } catch(e) {}
         }
 
-        async function openLightbox(src) { 
-            const img = document.getElementById('lightbox-img');
-            const metaDiv = document.getElementById('meta-content');
-            img.src = src; 
-            document.getElementById('lightbox').style.display = 'flex';
-            const jsonPath = src.replace(/\.(jpg|jpeg)/i, ".json");
-            document.getElementById('meta-time').innerText = "Loading...";
-            
-            try {
-                const res = await fetch(jsonPath);
-                if(res.ok) {
-                    const data = await res.json();
-                    const date = new Date(data.timestamp * 1000);
-                    document.getElementById('meta-time').innerText = date.toLocaleTimeString();
-                    document.getElementById('meta-date').innerText = date.toLocaleDateString();
-                    document.getElementById('meta-exp').innerText = data.exposure_sec.toFixed(2) + " s";
-                    const q = data.pose_quaternion_wxyz;
-                    document.getElementById('meta-qw').innerText = q[0].toFixed(3);
-                    document.getElementById('meta-qx').innerText = q[1].toFixed(3);
-                    document.getElementById('meta-qy').innerText = q[2].toFixed(3);
-                    document.getElementById('meta-qz').innerText = q[3].toFixed(3);
-                    const a = data.accel_ms2;
-                    document.getElementById('meta-accel').innerText = `${a.x.toFixed(2)}, ${a.y.toFixed(2)}, ${a.z.toFixed(2)}`;
-                } else {
-                    document.getElementById('meta-time').innerText = "NO DATA";
-                }
-            } catch(e) {
-                document.getElementById('meta-time').innerText = "ERROR";
+        async function snap() {
+            await fetch('/snapshot', {method:'POST'});
+            loadGal();
+        }
+
+        async function loadGal() {
+            let res = await fetch('/api/captures');
+            let files = await res.json();
+            let g = document.getElementById('gallery');
+            g.innerHTML = "";
+            files.forEach(f => {
+                let container = document.createElement('div');
+                container.className = "thumb-container";
+                
+                let i = document.createElement('img');
+                i.src = "/captures/" + f;
+                i.className = "thumb";
+                i.onclick = () => openLightbox(f);
+                
+                let b = document.createElement('div');
+                b.className = "analyze-badge";
+                b.innerText = "SCAN";
+                b.onclick = (e) => { e.stopPropagation(); analyze(f); };
+                
+                container.appendChild(i);
+                container.appendChild(b);
+                g.appendChild(container);
+            });
+        }
+
+        async function analyze(f) {
+            alert("Starting Lunar Terrain Analysis...");
+            let res = await fetch('/api/analyze/' + f, {method: 'POST'});
+            let data = await res.json();
+            if(data.status === "success") {
+                alert("Scan Complete.");
+                openLightbox(f); // Open with analysis ready
             }
         }
 
-        function closeLightbox() { document.getElementById('lightbox').style.display = 'none'; }
-        
-        loadGal();
-        
-        setInterval(async () => {
-            if (evtSource.readyState === 2) { 
-               try { 
-                   let res = await fetch('/api/telemetry');
-                   updateDisplay(await res.json()); 
-               } catch {} 
+        function openLightbox(f) {
+            currentImg = f;
+            showingMap = false;
+            document.getElementById('btn-toggle-map').innerText = "VIEW HAZARD MAP";
+            document.getElementById('lb-img').src = "/captures/" + f;
+            document.getElementById('lb-title').innerText = f;
+            document.getElementById('lightbox').style.display = "flex";
+            
+            // Try fetch metadata
+            fetch("/captures/" + f.replace(".jpg", ".json")).then(r => r.json()).then(m => {
+                document.getElementById('lb-meta').innerHTML = `
+                    Time: ${new Date(m.timestamp * 1000).toLocaleTimeString()}<br>
+                    Exp: ${m.exposure_sec}s<br>
+                    Pose: [${m.pose_quaternion_wxyz.map(v => v.toFixed(2)).join(",")}]
+                `;
+            });
+        }
+
+        function toggleMap() {
+            const img = document.getElementById('lb-img');
+            const btn = document.getElementById('btn-toggle-map');
+            if(!showingMap) {
+                img.src = "/captures/" + currentImg.replace(".jpg", "_landing_analysis.png");
+                btn.innerText = "VIEW RAW IMAGE";
+                showingMap = true;
+            } else {
+                img.src = "/captures/" + currentImg;
+                btn.innerText = "VIEW HAZARD MAP";
+                showingMap = false;
             }
-        }, 500);
+        }
+
+        function closeLightbox() { document.getElementById('lightbox').style.display = "none"; }
+
+        setInterval(updateDisplay, 500);
+        loadGal();
     </script>
 </body>
 </html>
