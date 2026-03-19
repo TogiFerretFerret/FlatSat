@@ -1,364 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Artemis Engineering Console</title>
-    <!-- Three.js for 3D -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- Chart.js for Plots -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <style>
-        :root { --bg: #050505; --panel: #111; --border: #333; --text: #00ff41; --dim: #00661a; --warn: #ffcc00; --alert: #ff0000; }
-        body { background: var(--bg); color: var(--text); font-family: 'Consolas', 'Courier New', monospace; padding: 5px; margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; }
-        
-        header { display: flex; justify-content: space-between; border-bottom: 2px solid var(--text); margin-bottom: 5px; padding-bottom: 2px; font-size: 0.9em; }
-        
-        .main-grid { 
-            display: grid; 
-            grid-template-columns: 240px 1fr 240px 240px; 
-            grid-template-rows: 1fr; 
-            gap: 5px; 
-            flex-grow: 1; 
-            min-height: 0; 
-        }
-        .col { display: flex; flex-direction: column; gap: 5px; overflow-y: auto; }
-        
-        .panel { background: var(--panel); border: 1px solid var(--border); padding: 5px; }
-        h2 { margin: 0 0 3px 0; font-size: 0.8em; color: #fff; border-bottom: 1px solid var(--dim); text-transform: uppercase; letter-spacing: 1px; }
-        
-        .data-row { display: flex; justify-content: space-between; font-size: 0.75em; margin-bottom: 2px; }
-        .data-val { font-weight: bold; color: #fff; }
-        
-        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px; text-align: center; margin-bottom: 2px; }
-        .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 2px; text-align: center; margin-bottom: 2px; }
-        .sensor-box { background: #000; border: 1px solid var(--border); padding: 2px; }
-        .lbl { display: block; font-size: 0.6em; color: #888; }
-        .val { font-size: 0.8em; font-weight: bold; }
-
-        .vid-container { 
-            flex-grow: 1; 
-            background: #080808; 
-            border: 1px solid var(--border); 
-            position: relative; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
-            min-height: 0; 
-            overflow: hidden; 
-        }
-        img.live-feed { width: 100%; height: 100%; object-fit: contain; display: block; }
-        .overlay { position: absolute; top: 5px; left: 5px; background: rgba(0,0,0,0.7); padding: 3px; font-size: 0.7em; border: 1px solid var(--dim); pointer-events: none; }
-
-        .bar-bg { width: 100%; height: 4px; background: #222; margin-top: 1px; margin-bottom: 3px; }
-        .bar-fill { height: 100%; background: var(--text); width: 0%; transition: width 0.2s; }
-        .bar-warn { background: var(--warn); }
-        .bar-alert { background: var(--alert); }
-        
-        .badge { display: inline-block; padding: 1px 4px; border-radius: 2px; font-size: 0.65em; margin-right: 2px; background: #222; color: #888; cursor: pointer; }
-        .badge:hover { background: #444; }
-        .badge.active { background: var(--alert); color: #fff; font-weight: bold; cursor: default; }
-
-        .btn { background: var(--panel); border: 1px solid var(--text); color: var(--text); width: 100%; padding: 8px; cursor: pointer; font-weight: bold; margin-top: 2px; font-size: 0.8em; user-select: none; }
-        .btn:hover { background: var(--dim); color: #fff; }
-        .btn:active { background: var(--text); color: #000; }
-        .btn-hold.active { background: #ffcc00; color: #000; border-color: #ffcc00; }
-        
-        table { width: 100%; border-collapse: collapse; font-size: 0.7em; }
-        th { text-align: left; color: #888; border-bottom: 1px solid #333; }
-        td { padding: 1px 0; }
-        
-        .gallery-panel { height: 100px; display: flex; flex-direction: column; overflow: hidden; margin-top: 5px; }
-        .gallery-strip { flex-grow: 1; display: flex; gap: 5px; overflow-x: auto; padding: 2px; background: #080808; border-top: 1px solid #333; align-items: center; }
-        .gallery-item { position: relative; height: 100%; aspect-ratio: 16/9; }
-        .gallery-check { position: absolute; top: 2px; right: 2px; z-index: 10; width: 15px; height: 15px; cursor: pointer; }
-        .thumb { height: 100%; width: 100%; border: 1px solid #444; cursor: pointer; transition: transform 0.1s, border-color 0.1s; object-fit: cover; }
-        .thumb:hover { transform: scale(1.05); border-color: var(--text); }
-
-        .progress-bar { width: 100%; height: 4px; background: #222; margin-top: 5px; display: none; }
-        .progress-fill { height: 100%; background: #00ffaa; width: 0%; transition: width 0.3s; }
-
-        /* INSPECTOR LIGHTBOX STYLES */
-        #lightbox { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 1000; justify-content: center; align-items: center; flex-direction: column; }
-        .lightbox-wrapper { display: flex; background: #111; border: 1px solid var(--text); max-width: 90%; max-height: 85%; box-shadow: 0 0 30px rgba(0,255,65,0.2); }
-        #lightbox-img { max-width: 65vw; max-height: 80vh; border-right: 1px solid var(--border); display: block; object-fit: contain; background: #000; }
-        
-        .lightbox-sidebar { width: 280px; padding: 15px; overflow-y: auto; background: #080808; display: flex; flex-direction: column; }
-        .lightbox-sidebar h3 { color: var(--text); border-bottom: 1px solid var(--dim); margin-top: 0; padding-bottom: 5px; font-size: 1em; letter-spacing: 1px; }
-        .meta-group { margin-bottom: 15px; }
-        .meta-label { color: #888; font-size: 0.7em; margin-bottom: 2px; text-transform: uppercase; }
-        .meta-val { color: #fff; font-size: 0.9em; font-weight: bold; border-bottom: 1px solid #222; padding-bottom: 2px; display: flex; justify-content: space-between; }
-        .meta-sub { font-size: 0.8em; color: #aaa; font-family: monospace; }
-        
-        #lightbox-close { margin-top: 15px; color: #fff; cursor: pointer; font-size: 1em; text-decoration: underline; opacity: 0.7; }
-        #lightbox-close:hover { opacity: 1; color: var(--text); }
-        
-        #container-3d { width: 100%; height: 180px; background: #000; border: 1px solid var(--border); margin-bottom: 5px; }
-        .chart-container { position: relative; height: 100px; width: 100%; margin-bottom: 5px; }
-        
-        input[type="number"] {
-            background: #222; border: 1px solid #444; color: #fff; padding: 1px 3px; font-family: monospace; font-size: 0.8em;
-        }
-    </style>
-</head>
-<body>
-    <header>
-        <div>ARTEMIS // ENGINEERING TELEMETRY</div>
-        <div id="conn-status" style="color:red">DISCONNECTED</div>
-    </header>
-
-    <div class="main-grid">
-        <!-- COL 1: DYNAMICS -->
-        <div class="col">
-            <div class="panel">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <h2>Orientation (3D)</h2>
-                    <div style="display:flex; gap:5px;">
-                        <button class="badge" style="border:1px solid #666; font-size:0.7em;" onclick="clearGhosts()">CLR TRACE</button>
-                        <button class="badge" style="border:1px solid #666; font-size:0.7em;" onclick="calibrateIMU()">RESET REF</button>
-                    </div>
-                </div>
-                <div id="container-3d"></div>
-                <div class="data-row" style="font-size:0.6em; color:#666;">DEBUG Q: <span id="debug-q">0,0,0,0</span></div>
-                <div class="data-row"><span>HEADING</span><span class="data-val" id="att-yaw">0°</span></div>
-                <div class="data-row"><span>PITCH</span><span class="data-val" id="att-pitch">0°</span></div>
-                <div class="data-row"><span>ROLL</span><span class="data-val" id="att-roll">0°</span></div>
-            </div>
-            
-            <div class="panel">
-                <h2>Quaternion</h2>
-                <div class="grid-4">
-                    <div class="sensor-box"><span class="lbl">W</span><span class="val" id="qw">0.00</span></div>
-                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="qx">0.00</span></div>
-                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="qy">0.00</span></div>
-                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="qz">0.00</span></div>
-                </div>
-            </div>
-
-            <div class="panel">
-                <h2>Accelerometer</h2>
-                <div class="chart-container" style="height: 60px;">
-                    <canvas id="chart-accel"></canvas>
-                </div>
-                <div class="grid-3">
-                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="ax">0.0</span></div>
-                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="ay">0.0</span></div>
-                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="az">0.0</span></div>
-                </div>
-            </div>
-
-            <div class="panel">
-                <h2>Gyroscope</h2>
-                <div class="grid-3">
-                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="gx">0.0</span></div>
-                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="gy">0.0</span></div>
-                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="gz">0.0</span></div>
-                </div>
-            </div>
-
-            <div class="panel">
-                <h2>Magnetometer</h2>
-                <div class="grid-3">
-                    <div class="sensor-box"><span class="lbl">X</span><span class="val" id="mx">0.0</span></div>
-                    <div class="sensor-box"><span class="lbl">Y</span><span class="val" id="my">0.0</span></div>
-                    <div class="sensor-box"><span class="lbl">Z</span><span class="val" id="mz">0.0</span></div>
-                </div>
-            </div>
-
-            <div class="panel">
-                <h2>Motion</h2>
-                <div class="data-row"><span>STATE</span><span class="data-val" id="motion-state">--</span></div>
-                <div class="data-row" style="margin-top:5px; border-top:1px solid #333; padding-top:2px;"><span>TOTAL G</span><span class="data-val" id="total-g">1.00</span></div>
-                <div class="data-row"><span>JERK (m/s³)</span><span class="data-val" id="jerk">0.0</span></div>
-            </div>
-        </div>
-
-        <!-- COL 2: OPTICAL & CONTROLS -->
-        <div class="col" style="min-width: 0;">
-            <div class="vid-container">
-                <img class="live-feed" src="/stream" alt="NO SIGNAL" onerror="console.log('Stream Error')">
-                <div class="overlay">LIVE OPTICAL FEED [720p]</div>
-                <div id="mapping-overlay" class="overlay" style="top: auto; bottom: 5px; right: 5px; left: auto; color: #00ffaa; display: none;">
-                    MAPPING ACTIVE: <span id="mapping-count">0</span> FRAMES
-                </div>
-            </div>
-
-            <!-- REALTIME MAPPING PREVIEW -->
-            <div id="mapping-preview-panel" class="panel" style="display:none; flex-direction:column; height: 180px; margin-top:5px; border-color: #00ffaa;">
-                <h2>Realtime Site Mapping</h2>
-                <div style="flex-grow:1; background:#000; position:relative; overflow:hidden;">
-                    <img id="mapping-img" src="" style="width:100%; height:100%; object-fit:contain;">
-                </div>
-            </div>
-            <!-- CAPTURE CONTROLS -->
-            <div style="display: flex; gap: 5px; margin-top: 2px;">
-                <button class="btn" style="flex: 2;" onclick="snap(0)">ACQUIRE (5MP)</button>
-                <button id="btn-mapping" class="btn" style="flex: 2; border-color: #00ffaa; color: #00ffaa;" onclick="toggleMapping()">
-                    AUTO-MAPPING MODE
-                </button>
-                <button id="btn-long-exp" class="btn btn-hold" style="flex: 1; border-color: #ffcc00; color: #ffcc00;" 
-                    onmousedown="startLongExp()" onmouseup="stopLongExp()" onmouseleave="stopLongExp()"
-                    ontouchstart="startLongExp()" ontouchend="stopLongExp()">
-                    LONG EXP (HOLD)
-                </button>
-            </div>
-
-            <div class="panel gallery-panel">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <h2>Mission Gallery</h2>
-                    <div style="display:flex; gap:5px;">
-                        <input type="file" id="upload-input" style="display:none;" accept="image/*" onchange="handleUpload(this)">
-                        <button class="badge" id="btn-upload" style="border:1px solid #00ffaa; color: #00ffaa; font-size:0.7em;" onclick="document.getElementById('upload-input').click()">UPLOAD & ANALYZE</button>
-                        <button class="badge" id="btn-stitch" style="border:1px solid #00ffaa; color: #00ffaa; font-size:0.7em;" onclick="stitchAndAnalyze()">STITCH & ANALYZE</button>
-                    </div>
-                </div>
-                <div id="gallery" class="gallery-strip"></div>
-            </div>
-        </div>
-
-        <!-- COL 3: MISSION SYSTEMS -->
-        <div class="col">
-            <div class="panel">
-                <h2>Health & Power</h2>
-                <div class="data-row" style="border-bottom:1px dashed #333; margin-bottom:4px; padding-bottom:4px;">
-                    <span>BATTERY</span><span class="data-val"><span id="bat-level">0%</span> (<span id="bat-charging">DISCHG</span>)</span>
-                </div>
-                <div class="bar-bg" style="margin-top:-2px; margin-bottom:5px;"><div id="bar-bat" class="bar-fill" style="width:0%"></div></div>
-                <div class="data-row"><span>BAT VOLTS</span><span class="data-val" id="bat-volts">0.00 V</span></div>
-                <div class="data-row"><span>INPUT (SOLAR)</span><span class="data-val" id="bat-input">-- V / -- W</span></div>
-                <div class="data-row"><span>BAT TEMP</span><span class="data-val" id="bat-temp">0°C</span></div>
-                <div class="data-row" style="margin-bottom:8px;"><span>PLUGGED IN</span><span class="data-val" id="bat-plugged">NO</span></div>
-                
-                <div class="data-row" style="justify-content:space-between; align-items:center; margin-bottom:8px;">
-                    <span>CONTROL</span>
-                    <div style="display:flex; gap:3px;">
-                        <button class="badge" id="btn-chg" style="border:1px solid #444;" onclick="toggleCharging()">CHG: ON</button>
-                    </div>
-                </div>
-
-                <div class="data-row"><span>CORE VOLTS</span><span class="data-val" id="cpu-volts">0.00 V</span></div>
-                <div class="data-row"><span>CPU CLOCK</span><span class="data-val" id="cpu-clock">0 MHz</span></div>
-                
-                <div class="data-row" style="justify-content:space-between; align-items:center;">
-                    <span>SPEED CTRL</span>
-                    <div style="display:flex; gap:3px;">
-                        <button class="badge" style="border:1px solid #444;" onclick="setClock('powersave')">ECO</button>
-                        <button class="badge" style="border:1px solid #444;" onclick="setClock('ondemand')">AUTO</button>
-                        <button class="badge" style="border:1px solid #444;" onclick="setClock('performance')">MAX</button>
-                    </div>
-                </div>
-                
-                <div class="data-row" style="justify-content:space-between; align-items:center; margin-top:2px;">
-                    <span>I2C CLOCK</span>
-                    <div style="display:flex; gap:3px;">
-                        <input type="number" id="i2c-input" value="400000" style="width:70px;">
-                        <button class="badge" style="border:1px solid #444;" onclick="setI2C(document.getElementById('i2c-input').value)">SET</button>
-                    </div>
-                </div>
-
-                <div class="data-row" style="margin-top:5px;"><span>THREADS</span><span class="data-val" id="sys-threads">0</span></div>
-                <div class="data-row"><span>THROTTLE</span><span class="data-val" id="throttle-hex">0x0</span></div>
-                <div id="health-badges" style="margin-top:5px; display:flex; flex-wrap:wrap; gap:2px;">
-                    <span id="flag-uv" class="badge">UNDERVOLT</span>
-                    <span id="flag-freq" class="badge">FREQ_CAP</span>
-                    <span id="flag-throt" class="badge">THROTTLED</span>
-                    <span id="flag-temp" class="badge">OVERHEAT</span>
-                </div>
-            </div>
-            <div class="panel">
-                <h2>Optical Sensor</h2>
-                <div class="data-row"><span>FPS / EXP</span><span class="data-val"><span id="cam-fps">0</span> / <span id="cam-exp">0ms</span></span></div>
-                <div class="data-row"><span>GAIN (A/D)</span><span class="data-val"><span id="cam-gain">1x</span> / <span id="cam-dgain">1x</span></span></div>
-                <div class="data-row"><span>AWB (R/B)</span><span class="data-val" id="cam-awb">--</span></div>
-                <div class="data-row"><span>AF STATE</span><span class="data-val" id="cam-lens">IDLE</span></div>
-                <div class="data-row"><span>RESOLUTION</span><span class="data-val" id="cam-res">--</span></div>
-            </div>
-            <div class="panel">
-                <h2>Network</h2>
-                <div class="data-row"><span>QUALITY</span><span class="data-val" id="link-qual">0%</span></div>
-                <div class="data-row"><span>RX</span><span class="data-val" id="net-rx">0.0 KB/s</span></div>
-                <div class="data-row"><span>TX</span><span class="data-val" id="net-tx">0.0 KB/s</span></div>
-                <div class="data-row"><span>WIFI RSSI</span><span class="data-val" id="wifi-rssi">0 dBm</span></div>
-                <div class="data-row"><span>RETRIES</span><span class="data-val" id="wifi-retry">0</span></div>
-                <div class="data-row"><span>MISSED</span><span class="data-val" id="wifi-missed">0</span></div>
-                <div class="data-row"><span>BT RSSI</span><span class="data-val" id="bt-rssi">0 dBm</span></div>
-                <div class="data-row"><span>IP ADDR</span><span class="data-val" id="ip-addr">--</span></div>
-            </div>
-        </div>
-
-        <!-- COL 4: DIAGNOSTICS -->
-        <div class="col">
-            <div class="panel">
-                <h2>Thermals & Load</h2>
-                <div class="data-row"><span>CPU LOAD</span><span class="data-val" id="cpu-load">0%</span></div>
-                <div class="bar-bg"><div id="bar-load" class="bar-fill" style="width:0%"></div></div>
-                <div class="data-row"><span>CPU TEMP</span><span class="data-val" id="cpu-temp">0C</span></div>
-                <div class="bar-bg"><div id="bar-temp" class="bar-fill" style="width:0%"></div></div>
-                <div class="data-row"><span>IMU TEMP</span><span class="data-val" id="imu-temp">0C</span></div>
-            </div>
-            <div class="panel">
-                <h2>Memory & Storage</h2>
-                <div class="data-row"><span>RAM USE</span><span class="data-val" id="ram-use">0 / 0 MB</span></div>
-                <div class="bar-bg"><div id="bar-ram" class="bar-fill" style="width:0%"></div></div>
-                <div class="data-row"><span>GPU MEM</span><span class="data-val" id="gpu-mem">0M</span></div>
-                <div class="data-row" style="margin-top:2px;"><span>DISK USE</span><span class="data-val" id="disk-use">0 / 0 GB</span></div>
-                <div class="bar-bg"><div id="bar-disk" class="bar-fill" style="width:0%"></div></div>
-                <div class="data-row" style="margin-top:2px;"><span>CAPACITY</span><span class="data-val" id="img-cap">~0 SHOTS</span></div>
-            </div>
-            <div class="panel">
-                <h2>Top Processes</h2>
-                <table>
-                    <thead><tr><th>PID</th><th>NAME</th><th>CPU</th><th>MEM</th></tr></thead>
-                    <tbody id="proc-list"></tbody>
-                </table>
-            </div>
-            <div class="panel" style="margin-top: 10px;">
-               <div class="data-row"><span>UPTIME</span><span class="data-val" id="uptime">0s</span></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- METADATA INSPECTOR LIGHTBOX -->
-    <div id="lightbox" onclick="closeLightbox()">
-        <div class="lightbox-wrapper" onclick="event.stopPropagation()">
-            <img id="lightbox-img" src="">
-            <div class="lightbox-sidebar">
-                <h3>FLIGHT DATA LOG</h3>
-                <div id="meta-content" style="padding-top:10px;">
-                    <div class="meta-group">
-                        <div class="meta-label">Capture Time</div>
-                        <div class="meta-val" id="meta-time">--:--:--</div>
-                        <div class="meta-sub" id="meta-date">YYYY-MM-DD</div>
-                    </div>
-                    <div class="meta-group">
-                        <div class="meta-label">Exposure Time</div>
-                        <div class="meta-val" id="meta-exp">0.00 s</div>
-                    </div>
-                    <div class="meta-group">
-                        <div class="meta-label">Pose Quaternion (W,X,Y,Z)</div>
-                        <div class="meta-val" style="display:block; font-size:0.8em; font-family:monospace; line-height:1.4;">
-                            <span id="meta-qw">1.000</span>, <span id="meta-qx">0.000</span><br>
-                            <span id="meta-qy">0.000</span>, <span id="meta-qz">0.000</span>
-                        </div>
-                    </div>
-                    <div class="meta-group">
-                        <div class="meta-label">Acceleration (m/s²)</div>
-                        <div class="meta-val" id="meta-accel">0.0, 0.0, 0.0</div>
-                    </div>
-                </div>
-                <button class="btn" id="btn-analyze" style="border-color: #00ffaa; color: #00ffaa;" onclick="analyzeCurrentImage()">
-                    ANALYZE LANDING SITE
-                </button>
-                <div id="analyze-progress-container" class="progress-bar">
-                    <div id="analyze-progress-fill" class="progress-fill"></div>
-                </div>
-            </div>
-        </div>
-        <div id="lightbox-close">CLICK OUTSIDE TO CLOSE</div>
-    </div>
-
     <script>
         // --- 3D SETUP ---
         const scene = new THREE.Scene();
@@ -388,9 +27,6 @@
         cube.add(axesHelper);
         camera.position.set(0, 2, 4);
         camera.lookAt(0, 0, 0);
-
-        const ghosts = new THREE.Group();
-        scene.add(ghosts);
 
         function animate3D() { requestAnimationFrame(animate3D); renderer.render(scene, camera); }
         animate3D();
@@ -443,163 +79,221 @@
         };
 
         let offsetQuaternion = new THREE.Quaternion();
+        let lastReceivedQuaternion = new THREE.Quaternion();
         let currentFilename = null;
         let mappingActive = false;
+        let chargingState = true;
 
-        const evtSource = new EventSource("/telemetry_stream");
-        evtSource.onmessage = (e) => {
-            const data = JSON.parse(e.data);
-            ui.conn.innerText = data.status || "OFFLINE";
-            ui.conn.style.color = (data.status === "ONLINE") ? "#00ff41" : "red";
-            
-            if (data.sys) {
-                ui.cpu_load.innerText = (data.sys.cpu_load || 0) + "%";
-                ui.bar_load.style.width = (data.sys.cpu_load || 0) + "%";
-                ui.cpu_temp.innerText = (data.sys.cpu_temp || 0) + "°C";
-                ui.bar_temp.style.width = (data.sys.cpu_temp || 0) + "%";
-                ui.uptime.innerText = (data.sys.uptime || 0) + "s";
-                ui.sys_threads.innerText = data.sys.threads || 0;
-                
-                if (data.sys.ram) {
-                    ui.ram_use.innerText = `${data.sys.ram.used} / ${data.sys.ram.total} MB`;
-                    ui.bar_ram.style.width = data.sys.ram.percent + "%";
-                }
-                if (data.sys.disk) {
-                    ui.disk_use.innerText = `${data.sys.disk.used} / ${data.sys.disk.total} GB`;
-                    ui.bar_disk.style.width = data.sys.disk.percent + "%";
-                }
-                if (data.sys.procs) {
-                    ui.proc_list.innerHTML = data.sys.procs.map(p => `<tr><td>${p.pid}</td><td>${p.name}</td><td>${p.cpu}%</td><td>${p.mem}%</td></tr>`).join('');
-                }
-            }
-            
-            if (data.imu) {
-                const q = data.imu.quaternion || [1,0,0,0];
-                ui.qw.innerText = q[0].toFixed(3); ui.qx.innerText = q[1].toFixed(3);
-                ui.qy.innerText = q[2].toFixed(3); ui.qz.innerText = q[3].toFixed(3);
-                ui.debug_q.innerText = q.map(v => v.toFixed(3)).join(', ');
-                
-                // Three.js uses (x, y, z, w)
-                const threeQ = new THREE.Quaternion(q[1], q[2], q[3], q[0]);
-                const calibratedQ = offsetQuaternion.clone().multiply(threeQ);
-                cube.quaternion.copy(calibratedQ);
-                
-                const euler = new THREE.Euler().setFromQuaternion(calibratedQ, 'YXZ');
-                ui.att_yaw.innerText = Math.round(THREE.MathUtils.radToDeg(euler.y)) + "°";
-                ui.att_pitch.innerText = Math.round(THREE.MathUtils.radToDeg(euler.x)) + "°";
-                ui.att_roll.innerText = Math.round(THREE.MathUtils.radToDeg(euler.z)) + "°";
+        async function pollProgress(taskId, btnId, progressContainerId) {
+            const btn = document.getElementById(btnId);
+            const progressBar = progressContainerId ? document.getElementById(progressContainerId) : null;
+            const progressFill = progressBar ? progressBar.querySelector('.progress-fill') : null;
+            if (progressBar) progressBar.style.display = 'block';
 
-                const a = data.imu.accel || [0,0,0];
-                ui.ax.innerText = a[0].toFixed(2); ui.ay.innerText = a[1].toFixed(2); ui.az.innerText = a[2].toFixed(2);
-                chartAccel.data.datasets[0].data.push(a[0]); chartAccel.data.datasets[0].data.shift();
-                chartAccel.data.datasets[1].data.push(a[1]); chartAccel.data.datasets[1].data.shift();
-                chartAccel.data.datasets[2].data.push(a[2]); chartAccel.data.datasets[2].data.shift();
-                chartAccel.update();
-
-                const g = data.imu.gyro || [0,0,0];
-                ui.gx.innerText = g[0].toFixed(1); ui.gy.innerText = g[1].toFixed(1); ui.gz.innerText = g[2].toFixed(1);
-                const m = data.imu.mag || [0,0,0];
-                ui.mx.innerText = m[0].toFixed(1); ui.my.innerText = m[1].toFixed(1); ui.mz.innerText = m[2].toFixed(1);
-                
-                ui.total_g.innerText = Math.sqrt(a[0]**2 + a[1]**2 + a[2]**2).toFixed(2);
-                ui.imu_temp.innerText = (data.imu.temp || 0).toFixed(1) + "°C";
-            }
-
-            if (data.power) {
-                ui.bat_level.innerText = (data.power.percent || 0) + "%";
-                ui.bar_bat.style.width = (data.power.percent || 0) + "%";
-                ui.bat_volts.innerText = (data.power.voltage || 0).toFixed(2) + " V";
-                ui.bat_charging.innerText = data.power.charging ? "CHARGING" : "DISCHG";
-                ui.bat_input.innerText = `${data.power.input_est || '--'} V / ${data.power.watts || '--'} W`;
-                ui.bat_plugged.innerText = data.power.plugged ? "YES" : "NO";
-                ui.bat_temp.innerText = (data.power.temp || 0).toFixed(1) + "°C";
-                ui.cpu_volts.innerText = (data.power.cpu_volts || 0).toFixed(2) + " V";
-                ui.cpu_clock.innerText = (data.power.cpu_freq || 0) + " MHz";
-                ui.btn_chg.innerText = data.power.charging_enabled ? "CHG: ON" : "CHG: OFF";
-                chargingState = data.power.charging_enabled;
-            }
-
-            if (data.cam_meta) {
-                ui.cam_fps.innerText = (data.cam_meta.fps || 0).toFixed(1);
-                ui.cam_exp.innerText = Math.round((data.cam_meta.exp || 0) / 1000) + "ms";
-                ui.cam_gain.innerText = (data.cam_meta.gain || 1).toFixed(1) + "x";
-                ui.cam_res.innerText = data.cam_meta.res || "--";
-            }
-
-            if (data.net) {
-                ui.link_qual.innerText = (data.net.quality || 0) + "%";
-                ui.wifi_rssi.innerText = (data.net.rssi || 0) + " dBm";
-                ui.ip_addr.innerText = data.net.ip || "--";
-            }
-
-            if (data.mapping_status) {
-                mappingActive = data.mapping_status === 'active';
-                document.getElementById('mapping-overlay').style.display = mappingActive ? 'block' : 'none';
-                document.getElementById('mapping-count').innerText = data.mapping_frames || 0;
-                document.getElementById('btn-mapping').innerText = mappingActive ? "STOP MAPPING" : "AUTO-MAPPING MODE";
-                
-                const previewPanel = document.getElementById('mapping-preview-panel');
-                if (mappingActive && data.mapping_image) {
-                    previewPanel.style.display = 'flex';
-                    const mappingImg = document.getElementById('mapping-img');
-                    // Add timestamp to force reload
-                    mappingImg.src = `/captures/${data.mapping_image}?t=${Date.now()}`;
-                } else if (!mappingActive) {
-                    previewPanel.style.display = 'none';
-                }
-            }
-        };
-
-        async function snap() {
-            const res = await fetch('/snapshot', { method: 'POST' });
-            const data = await res.json();
-            if (data.status === 'success') loadGal();
-        }
-
-        async function toggleMapping() {
-            const endpoint = mappingActive ? '/api/mapping/stop' : '/api/mapping/start';
-            await fetch(endpoint, { method: 'POST' });
-        }
-
-        async function calibrateIMU() {
-            // Take current orientation as reference (identity)
-            const q = new THREE.Quaternion();
-            const raw = ui.debug_q.innerText.split(',').map(v => parseFloat(v));
-            if (raw.length === 4) {
-                q.set(raw[1], raw[2], raw[3], raw[0]);
-                offsetQuaternion.copy(q.invert());
-            }
-        }
-
-        async function toggleCharging() {
-            await fetch('/api/power', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({charging: !chargingState}) });
-        }
-
-        async function setI2C(speed) { await fetch('/api/i2c', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({speed: parseInt(speed)}) }); }
-
-        async function loadGal() {
-            const res = await fetch('/api/captures');
-            const files = await res.json();
-            ui.gallery.innerHTML = "";
-            files.forEach(f => {
-                const div = document.createElement('div');
-                div.className = "gallery-item";
-                div.innerHTML = `<input type="checkbox" class="gallery-check" value="${f}"><img src="/captures/${f}" class="thumb" onclick="openLightbox('/captures/${f}')">`;
-                ui.gallery.appendChild(div);
+            return new Promise((resolve) => {
+                const interval = setInterval(async () => {
+                    try {
+                        const res = await fetch(`/api/progress/${taskId}`);
+                        const data = await res.json();
+                        if (data.msg !== "Pending") {
+                            btn.innerText = `${data.msg} (${Math.round(data.p * 100)}%)`;
+                            if (progressFill) progressFill.style.width = (data.p * 100) + "%";
+                        }
+                        if (data.p >= 1) { clearInterval(interval); if (progressBar) progressBar.style.display = 'none'; resolve(); }
+                    } catch (e) { clearInterval(interval); resolve(); }
+                }, 500);
             });
         }
 
+        async function analyzeCurrentImage() {
+            if (!currentFilename) return;
+            const btn = document.getElementById('btn-analyze');
+            const originalText = "ANALYZE LANDING SITE";
+            const taskId = "analyze_" + Date.now();
+            btn.disabled = true;
+            const pollPromise = pollProgress(taskId, 'btn-analyze', 'analyze-progress-container');
+            try {
+                const res = await fetch(`/api/analyze/${currentFilename}?task_id=${taskId}`, { method: 'POST' });
+                const data = await res.json();
+                await pollPromise;
+                if (data.status === 'success') {
+                    document.getElementById('lightbox-img').src = data.analysis_url + "?t=" + Date.now();
+                    btn.innerText = "ANALYSIS COMPLETE";
+                    loadGal();
+                } else { alert("Analysis Failed: " + data.msg); btn.innerText = originalText; btn.disabled = false; }
+            } catch (e) { alert("Request Failed: " + e); btn.innerText = originalText; btn.disabled = false; }
+        }
 
-        function openLightbox(src) {
-            currentFilename = src.split('/').pop();
+        async function handleUpload(input) {
+            if (!input.files || input.files.length === 0) return;
+            const formData = new FormData(); formData.append('file', input.files[0]);
+            const btn = document.getElementById('btn-upload');
+            const originalText = "UPLOAD & ANALYZE";
+            const taskId = "upload_" + Date.now();
+            btn.disabled = true;
+            const pollPromise = pollProgress(taskId, 'btn-upload');
+            try {
+                const res = await fetch(`/api/upload?task_id=${taskId}`, { method: 'POST', body: formData });
+                const data = await res.json();
+                await pollPromise;
+                if (data.status === 'success') { openLightbox(data.analysis_url); loadGal(); }
+                else { alert("Upload Failed: " + data.msg); }
+            } catch (e) { alert("Request Failed: " + e); }
+            finally { btn.innerText = originalText; btn.disabled = false; input.value = ""; }
+        }
+
+        async function stitchAndAnalyze() {
+            const checks = document.querySelectorAll('.gallery-check:checked');
+            const filenames = Array.from(checks).map(c => c.value);
+            if (filenames.length < 2) { alert("Please select at least 2 images to stitch."); return; }
+            const btn = document.getElementById('btn-stitch');
+            const originalText = "STITCH & ANALYZE";
+            const taskId = "stitch_" + Date.now();
+            btn.disabled = true;
+            const pollPromise = pollProgress(taskId, 'btn-stitch');
+            try {
+                const res = await fetch(`/api/stitch_and_analyze?task_id=${taskId}`, {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({filenames: filenames})
+                });
+                const data = await res.json();
+                await pollPromise;
+                if (data.status === 'success') { openLightbox(data.analysis_url); loadGal(); }
+                else { alert("Stitching Failed: " + data.msg); }
+            } catch (e) { alert("Request Failed: " + e); }
+            finally { btn.innerText = originalText; btn.disabled = false; }
+        }
+
+        function formatUptime(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            return `${h}h ${m}m ${s}s`;
+        }
+
+        const evtSource = new EventSource("/telemetry_stream");
+        evtSource.onmessage = (e) => {
+            const d = JSON.parse(e.data);
+            ui.conn.innerText = d.status || "OFFLINE";
+            ui.conn.style.color = (d.status === "ONLINE") ? "#00ff41" : "red";
+
+            if (d.quaternion) {
+                const q = d.quaternion;
+                lastReceivedQuaternion.set(q[1], q[2], q[3], q[0]); 
+                const displayQ = offsetQuaternion.clone().multiply(lastReceivedQuaternion);
+                cube.quaternion.slerp(displayQ, 0.5);
+                ui.qw.innerText = q[0].toFixed(3); ui.qx.innerText = q[1].toFixed(3);
+                ui.qy.innerText = q[2].toFixed(3); ui.qz.innerText = q[3].toFixed(3);
+                ui.debug_q.innerText = `${q[0].toFixed(2)}, ${q[1].toFixed(2)}, ${q[2].toFixed(2)}, ${q[3].toFixed(2)}`;
+                
+                const euler = new THREE.Euler().setFromQuaternion(displayQ, 'YXZ');
+                ui.att_yaw.innerText = Math.round(THREE.MathUtils.radToDeg(euler.y)) + "°";
+                ui.att_pitch.innerText = Math.round(THREE.MathUtils.radToDeg(euler.x)) + "°";
+                ui.att_roll.innerText = Math.round(THREE.MathUtils.radToDeg(euler.z)) + "°";
+            }
+
+            if (d.accel) {
+                ui.ax.innerText = d.accel.x.toFixed(2); ui.ay.innerText = d.accel.y.toFixed(2); ui.az.innerText = d.accel.z.toFixed(2);
+                chartAccel.data.datasets[0].data.push(d.accel.x); chartAccel.data.datasets[0].data.shift();
+                chartAccel.data.datasets[1].data.push(d.accel.y); chartAccel.data.datasets[1].data.shift();
+                chartAccel.data.datasets[2].data.push(d.accel.z); chartAccel.data.datasets[2].data.shift();
+                chartAccel.update('none');
+                ui.total_g.innerText = (Math.sqrt(d.accel.x**2 + d.accel.y**2 + d.accel.z**2) / 9.81).toFixed(2);
+            }
+            if (d.gyro) { ui.gx.innerText = d.gyro.x.toFixed(1); ui.gy.innerText = d.gyro.y.toFixed(1); ui.gz.innerText = d.gyro.z.toFixed(1); }
+            if (d.mag) { ui.mx.innerText = d.mag.x.toFixed(0); ui.my.innerText = d.mag.y.toFixed(0); ui.mz.innerText = d.mag.z.toFixed(0); }
+            if (d.jerk !== undefined) ui.jerk.innerText = d.jerk.toFixed(1);
+
+            if (d.sys) {
+                ui.cpu_load.innerText = d.sys.cpu_load + "%"; ui.bar_load.style.width = d.sys.cpu_load + "%";
+                ui.cpu_temp.innerText = d.sys.cpu_temp + "C"; ui.bar_temp.style.width = Math.min((d.sys.cpu_temp/85)*100, 100) + "%";
+                ui.imu_temp.innerText = (d.sys.imu_temp || 0) + "C";
+                ui.ram_use.innerText = `${d.sys.ram_used_mb}/${d.sys.ram_total_mb} MB`; ui.bar_ram.style.width = d.sys.ram_percent + "%";
+                ui.disk_use.innerText = `${d.sys.disk_used_gb}/${d.sys.disk_total_gb} GB`; ui.bar_disk.style.width = d.sys.disk_percent + "%";
+                ui.uptime.innerText = formatUptime(d.sys.uptime_script || 0);
+                ui.sys_threads.innerText = d.sys.active_threads || 0;
+                ui.throttle_hex.innerText = d.sys.throttle_hex || "0x0";
+                ui.ip_addr.innerText = d.sys.ip_addr || "--";
+                if (d.sys.processes) ui.proc_list.innerHTML = d.sys.processes.map(p => `<tr><td>${p.pid}</td><td>${p.name}</td><td>${p.cpu}%</td><td>${p.mem}%</td></tr>`).join('');
+            }
+
+            if (d.power) {
+                ui.bat_level.innerText = d.power.level + "%"; ui.bar_bat.style.width = d.power.level + "%";
+                ui.bat_volts.innerText = d.power.voltage + " V";
+                ui.bat_charging.innerText = d.power.charging ? "CHARGING" : "DISCHG";
+                ui.bat_input.innerText = `${d.power.input_est || '--'} V / ${d.power.watts || '--'} W`;
+                ui.bat_plugged.innerText = d.power.plugged ? "YES" : "NO";
+                ui.bat_temp.innerText = d.power.temp + "°C";
+                chargingState = d.power.charging;
+                ui.btn_chg.innerText = chargingState ? "CHG: ON" : "CHG: OFF";
+            }
+
+            if (d.cam_meta) {
+                ui.cam_fps.innerText = d.cam_meta.fps.toFixed(1); ui.cam_res.innerText = d.cam_meta.res;
+                ui.cam_exp.innerText = d.cam_meta.exp_ms.toFixed(1) + "ms";
+                ui.cam_gain.innerText = d.cam_meta.a_gain.toFixed(1) + "x";
+            }
+
+            if (d.mapping_status) {
+                mappingActive = d.mapping_status === 'active';
+                document.getElementById('mapping-overlay').style.display = mappingActive ? 'block' : 'none';
+                document.getElementById('mapping-count').innerText = d.mapping_frames || 0;
+                document.getElementById('btn-mapping').innerText = mappingActive ? "STOP MAPPING" : "AUTO-MAPPING MODE";
+                const previewPanel = document.getElementById('mapping-preview-panel');
+                if (mappingActive && d.mapping_image) {
+                    previewPanel.style.display = 'flex';
+                    document.getElementById('mapping-img').src = `/captures/${d.mapping_image}?t=${Date.now()}`;
+                } else if (!mappingActive) { previewPanel.style.display = 'none'; }
+            }
+        };
+
+        async function snap(exp=0) { await fetch(`/snapshot${exp ? '?exposure='+exp : ''}`, {method:'POST'}); loadGal(); }
+        async function toggleMapping() { await fetch(`/api/mapping/${mappingActive ? 'stop' : 'start'}`, {method:'POST'}); }
+        async function calibrateIMU() { offsetQuaternion.copy(lastReceivedQuaternion).invert(); }
+        async function toggleCharging() { await fetch('/api/power', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'charging', value:!chargingState})}); }
+        async function setClock(mode) { await fetch('/api/clock', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mode:mode})}); }
+        async function setI2C(baud) { await fetch('/api/i2c', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({baudrate:parseInt(baud)})}); }
+
+        async function loadGal() {
+            try {
+                const res = await fetch('/api/captures');
+                const files = await res.json();
+                ui.gallery.innerHTML = files.map(f => `
+                    <div class="gallery-item">
+                        <input type="checkbox" class="gallery-check" value="${f}" onclick="event.stopPropagation()">
+                        <img src="/captures/${f}?t=${Date.now()}" class="thumb" onclick="openLightbox('/captures/${f}')">
+                    </div>`).join('');
+            } catch(e) {}
+        }
+
+        async function openLightbox(src) {
+            currentFilename = src.split('/').pop().split('?')[0];
             document.getElementById('lightbox-img').src = src;
             document.getElementById('lightbox').style.display = 'flex';
+            document.getElementById('btn-analyze').style.display = currentFilename.includes("_landing_analysis") ? "none" : "block";
+            document.getElementById('btn-analyze').innerText = "ANALYZE LANDING SITE";
+            document.getElementById('btn-analyze').disabled = false;
+            
+            try {
+                const res = await fetch(src.replace(/\.(jpg|jpeg)/i, ".json"));
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('meta-time').innerText = new Date(data.timestamp * 1000).toLocaleTimeString();
+                    document.getElementById('meta-date').innerText = new Date(data.timestamp * 1000).toLocaleDateString();
+                    document.getElementById('meta-exp').innerText = data.exposure_sec.toFixed(2) + " s";
+                    document.getElementById('meta-qw').innerText = data.pose_quaternion_wxyz[0].toFixed(3);
+                    document.getElementById('meta-qx').innerText = data.pose_quaternion_wxyz[1].toFixed(3);
+                    document.getElementById('meta-qy').innerText = data.pose_quaternion_wxyz[2].toFixed(3);
+                    document.getElementById('meta-qz').innerText = data.pose_quaternion_wxyz[3].toFixed(3);
+                    document.getElementById('meta-accel').innerText = `${data.accel_ms2.x.toFixed(2)}, ${data.accel_ms2.y.toFixed(2)}, ${data.accel_ms2.z.toFixed(2)}`;
+                }
+            } catch(e) {}
         }
+
         function closeLightbox() { document.getElementById('lightbox').style.display = 'none'; }
         
-        async function setClock(gov) { await fetch('/api/clock', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({governor: gov}) }); }
-        
-        document.addEventListener('DOMContentLoaded', loadGal);
+        loadGal();
+        setInterval(loadGal, 5000);
     </script>
 </body>
 </html>

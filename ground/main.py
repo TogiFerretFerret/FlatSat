@@ -7,6 +7,7 @@ import os
 import requests
 import sys
 import glob
+import traceback
 from flask import Flask, render_template, jsonify, request, Response, stream_with_context, send_from_directory
 from werkzeug.utils import secure_filename
 from lunar_landing_analyzer import analyze_image
@@ -82,20 +83,23 @@ class MappingSession:
                             
                             # Use last 4 frames for the rolling map
                             subset = self.frames[-4:]
+                            print(f"[Mapping] Attempting to stitch {len(subset)} frames...")
                             success, msg = stitch_images(subset, stitched_path)
                             
                             if success:
+                                print(f"[Mapping] Stitch SUCCESS -> {stitched_fn}")
                                 self.master_map_fn = stitched_fn
                                 # Only analyze if frame count is a multiple of 4 to avoid overload
                                 if len(self.frames) % 4 == 0:
-                                    # Use fast_mode=True for analysis in mapping
+                                    print("[Mapping] Running periodic analysis...")
                                     result = analyze_image(stitched_path, output_dir=CAPTURE_DIR, fast_mode=True)
                                     self.analysis_fn = os.path.basename(result['output_path'])
                                 else:
                                     self.analysis_fn = stitched_fn
+                            else:
+                                print(f"[Mapping] Stitch FAILED: {msg}")
             except Exception as e:
-                # print(f"[Mapping] Snapshot Failed: {e}")
-                pass
+                print(f"[Mapping] CRITICAL ERROR: {e}")
             
             time.sleep(2.0) # Sane polling rate
         print("[Mapping] Session Stopped")
