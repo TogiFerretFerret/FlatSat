@@ -4,37 +4,43 @@ import os
 import json
 
 def stitch_images(image_paths, output_path):
-    """
-    Stitches multiple images into one panorama.
-    image_paths: List of absolute paths to images.
-    output_path: Path to save the stitched image.
-    Returns: (success_bool, status_message)
-    """
-    images = []
-    for path in image_paths:
-        img = cv2.imread(path)
-        if img is None:
-            return False, f"Could not read image: {path}"
-        images.append(img)
-    
-    if len(images) < 2:
-        return False, "Need at least 2 images to stitch."
+    def stitch_images(image_paths, output_path):
+        """
+        Stitches multiple images into one panorama.
+        image_paths: List of absolute paths to images.
+        output_path: Path to save the stitched image.
+        Returns: (success_bool, status_message)
+        """
+        images = []
+        for path in image_paths:
+            img = cv2.imread(path)
+            if img is None:
+                return False, f"Could not read image: {path}"
+            # Resize images to speed up stitching and improve matching
+            h, w = img.shape[:2]
+            if w > 1200:
+                scale = 1200 / w
+                img = cv2.resize(img, (1200, int(h * scale)))
+            images.append(img)
 
-    # Use OpenCV's built-in Stitcher
-    # For newer OpenCV versions, use cv2.Stitcher_create()
-    cv2.ocl.setUseOpenCL(False)
-    stitcher = cv2.Stitcher_create()
-    status, stitched = stitcher.stitch(images)
+        if len(images) < 2:
+            return False, "Need at least 2 images to stitch."
 
-    if status == cv2.Stitcher_OK:
-        cv2.imwrite(output_path, stitched)
-        return True, "Success"
-    else:
-        # Status codes:
-        # ERR_NEED_MORE_IMGS = 1
-        # ERR_HOMOGRAPHY_EST_FAIL = 2
-        # ERR_CAMERA_PARAMS_ADJUST_FAIL = 3
-        return False, f"Stitching failed with status code: {status}"
+        # Use OpenCV's built-in Stitcher with SCANS mode for better flat-plane stitching
+        stitcher = cv2.Stitcher_create(cv2.Stitcher_SCANS)
+        status, stitched = stitcher.stitch(images)
+
+        if status == cv2.Stitcher_OK:
+            cv2.imwrite(output_path, stitched)
+            return True, "Success"
+        else:
+            err_msgs = {
+                1: "NEED_MORE_IMGS (Not enough overlap or features)",
+                2: "HOMOGRAPHY_EST_FAIL (Could not align images)",
+                3: "CAMERA_PARAMS_ADJUST_FAIL (Exposure or focus mismatch)"
+            }
+            return False, err_msgs.get(status, f"Error Code: {status}")
+
 
 if __name__ == "__main__":
     # Test stub

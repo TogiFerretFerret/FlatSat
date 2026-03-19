@@ -313,20 +313,29 @@ def stream():
 def snapshot():
     s = io.BytesIO()
     exp = request.args.get('exposure', 0.0, type=float)
+    fast = request.args.get('fast', 'false').lower() == 'true'
+    
     with cam_lock:
         data = assemble_telemetry()
-        configure_camera(CAPTURE_RES[0], CAPTURE_RES[1])
-        if exp > 0:
-            us = int(exp*1000000)
-            cam.picam2.set_controls({"FrameDurationLimits": (us+10000, us+10000), "ExposureTime": us})
-            time.sleep(exp + 0.5)
-        else: time.sleep(0.5)
-        cam.picam2.capture_file(s, format="jpeg")
-        configure_camera(STREAM_RES[0], STREAM_RES[1])
-        cam.picam2.set_controls({"ExposureTime": 0, "FrameDurationLimits": (0, 0)})
+        
+        if fast:
+            # Capture at CURRENT resolution (no restart)
+            cam.picam2.capture_file(s, format="jpeg")
+        else:
+            # Full Resolution Switch (Restart required)
+            configure_camera(CAPTURE_RES[0], CAPTURE_RES[1])
+            if exp > 0:
+                us = int(exp*1000000)
+                cam.picam2.set_controls({"FrameDurationLimits": (us+10000, us+10000), "ExposureTime": us})
+                time.sleep(exp + 0.5)
+            else:
+                time.sleep(0.5)
+            cam.picam2.capture_file(s, format="jpeg")
+            configure_camera(STREAM_RES[0], STREAM_RES[1])
+            cam.picam2.set_controls({"ExposureTime": 0, "FrameDurationLimits": (0, 0)})
+
     s.seek(0)
     resp = make_response(send_file(s, mimetype='image/jpeg', download_name='snap.jpg'))
-    # Use the same quaternion logic as before
     resp.headers['X-Pose'] = ",".join(map(str, data.get("quaternion", [1,0,0,0])))
     resp.headers['X-Accel'] = f"{data.get('accel',{'x':0})['x']},{data.get('accel',{'y':0})['y']},{data.get('accel',{'z':0})['z']}"
     return resp

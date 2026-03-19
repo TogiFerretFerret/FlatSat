@@ -66,8 +66,8 @@ class MappingSession:
                 if not self.active: break
             
             try:
-                # Capture a frame from the Pi (faster timeout)
-                resp = requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/snapshot", timeout=2)
+                # Use fast=true to avoid camera restarts
+                resp = requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/snapshot?fast=true", timeout=5)
                 if resp.status_code == 200:
                     ts = int(time.time() * 100)
                     fn = f"map_frame_{ts}.jpg"
@@ -77,27 +77,27 @@ class MappingSession:
                     with self.lock:
                         self.frames.append(path)
                         if len(self.frames) >= 2:
-                            stitched_fn = f"map_realtime.jpg"
+                            stitched_fn = "map_realtime.jpg"
                             stitched_path = os.path.join(CAPTURE_DIR, stitched_fn)
                             
-                            # Stitch last 6 frames for a rolling realtime map
-                            subset = self.frames[-6:]
+                            # Use last 4 frames for the rolling map
+                            subset = self.frames[-4:]
                             success, msg = stitch_images(subset, stitched_path)
                             
                             if success:
                                 self.master_map_fn = stitched_fn
-                                # Run fast analysis every 3 frames to maintain high framerate
-                                if len(self.frames) % 3 == 0:
-                                    analysis_path = analyze_image(stitched_path, output_dir=CAPTURE_DIR, fast_mode=True)
-                                    self.analysis_fn = os.path.basename(analysis_path)
+                                # Only analyze if frame count is a multiple of 4 to avoid overload
+                                if len(self.frames) % 4 == 0:
+                                    # Use fast_mode=True for analysis in mapping
+                                    result = analyze_image(stitched_path, output_dir=CAPTURE_DIR, fast_mode=True)
+                                    self.analysis_fn = os.path.basename(result['output_path'])
                                 else:
                                     self.analysis_fn = stitched_fn
-                                    
             except Exception as e:
-                # print(f"[Mapping] Error: {e}")
+                # print(f"[Mapping] Snapshot Failed: {e}")
                 pass
             
-            time.sleep(0.05) # Aggressive polling for "realtime" feel
+            time.sleep(2.0) # Sane polling rate
         print("[Mapping] Session Stopped")
 
 mapping_session = MappingSession()
