@@ -451,6 +451,7 @@
                 ui.cpu_temp.innerText = (data.sys.cpu_temp || 0) + "°C";
                 ui.bar_temp.style.width = (data.sys.cpu_temp || 0) + "%";
                 ui.uptime.innerText = (data.sys.uptime || 0) + "s";
+                ui.sys_threads.innerText = data.sys.threads || 0;
                 
                 if (data.sys.ram) {
                     ui.ram_use.innerText = `${data.sys.ram.used} / ${data.sys.ram.total} MB`;
@@ -460,20 +461,41 @@
                     ui.disk_use.innerText = `${data.sys.disk.used} / ${data.sys.disk.total} GB`;
                     ui.bar_disk.style.width = data.sys.disk.percent + "%";
                 }
+                if (data.sys.procs) {
+                    ui.proc_list.innerHTML = data.sys.procs.map(p => `<tr><td>${p.pid}</td><td>${p.name}</td><td>${p.cpu}%</td><td>${p.mem}%</td></tr>`).join('');
+                }
             }
             
             if (data.imu) {
                 const q = data.imu.quaternion || [1,0,0,0];
                 ui.qw.innerText = q[0].toFixed(3); ui.qx.innerText = q[1].toFixed(3);
                 ui.qy.innerText = q[2].toFixed(3); ui.qz.innerText = q[3].toFixed(3);
-                cube.quaternion.set(q[1], q[2], q[3], q[0]);
+                ui.debug_q.innerText = q.map(v => v.toFixed(3)).join(', ');
                 
+                // Three.js uses (x, y, z, w)
+                const threeQ = new THREE.Quaternion(q[1], q[2], q[3], q[0]);
+                const calibratedQ = offsetQuaternion.clone().multiply(threeQ);
+                cube.quaternion.copy(calibratedQ);
+                
+                const euler = new THREE.Euler().setFromQuaternion(calibratedQ, 'YXZ');
+                ui.att_yaw.innerText = Math.round(THREE.MathUtils.radToDeg(euler.y)) + "°";
+                ui.att_pitch.innerText = Math.round(THREE.MathUtils.radToDeg(euler.x)) + "°";
+                ui.att_roll.innerText = Math.round(THREE.MathUtils.radToDeg(euler.z)) + "°";
+
                 const a = data.imu.accel || [0,0,0];
                 ui.ax.innerText = a[0].toFixed(2); ui.ay.innerText = a[1].toFixed(2); ui.az.innerText = a[2].toFixed(2);
                 chartAccel.data.datasets[0].data.push(a[0]); chartAccel.data.datasets[0].data.shift();
                 chartAccel.data.datasets[1].data.push(a[1]); chartAccel.data.datasets[1].data.shift();
                 chartAccel.data.datasets[2].data.push(a[2]); chartAccel.data.datasets[2].data.shift();
                 chartAccel.update();
+
+                const g = data.imu.gyro || [0,0,0];
+                ui.gx.innerText = g[0].toFixed(1); ui.gy.innerText = g[1].toFixed(1); ui.gz.innerText = g[2].toFixed(1);
+                const m = data.imu.mag || [0,0,0];
+                ui.mx.innerText = m[0].toFixed(1); ui.my.innerText = m[1].toFixed(1); ui.mz.innerText = m[2].toFixed(1);
+                
+                ui.total_g.innerText = Math.sqrt(a[0]**2 + a[1]**2 + a[2]**2).toFixed(2);
+                ui.imu_temp.innerText = (data.imu.temp || 0).toFixed(1) + "°C";
             }
 
             if (data.power) {
@@ -482,6 +504,25 @@
                 ui.bat_volts.innerText = (data.power.voltage || 0).toFixed(2) + " V";
                 ui.bat_charging.innerText = data.power.charging ? "CHARGING" : "DISCHG";
                 ui.bat_input.innerText = `${data.power.input_est || '--'} V / ${data.power.watts || '--'} W`;
+                ui.bat_plugged.innerText = data.power.plugged ? "YES" : "NO";
+                ui.bat_temp.innerText = (data.power.temp || 0).toFixed(1) + "°C";
+                ui.cpu_volts.innerText = (data.power.cpu_volts || 0).toFixed(2) + " V";
+                ui.cpu_clock.innerText = (data.power.cpu_freq || 0) + " MHz";
+                ui.btn_chg.innerText = data.power.charging_enabled ? "CHG: ON" : "CHG: OFF";
+                chargingState = data.power.charging_enabled;
+            }
+
+            if (data.cam_meta) {
+                ui.cam_fps.innerText = (data.cam_meta.fps || 0).toFixed(1);
+                ui.cam_exp.innerText = Math.round((data.cam_meta.exp || 0) / 1000) + "ms";
+                ui.cam_gain.innerText = (data.cam_meta.gain || 1).toFixed(1) + "x";
+                ui.cam_res.innerText = data.cam_meta.res || "--";
+            }
+
+            if (data.net) {
+                ui.link_qual.innerText = (data.net.quality || 0) + "%";
+                ui.wifi_rssi.innerText = (data.net.rssi || 0) + " dBm";
+                ui.ip_addr.innerText = data.net.ip || "--";
             }
 
             if (data.mapping_status) {
@@ -503,6 +544,22 @@
             await fetch(endpoint, { method: 'POST' });
         }
 
+        async function calibrateIMU() {
+            // Take current orientation as reference (identity)
+            const q = new THREE.Quaternion();
+            const raw = ui.debug_q.innerText.split(',').map(v => parseFloat(v));
+            if (raw.length === 4) {
+                q.set(raw[1], raw[2], raw[3], raw[0]);
+                offsetQuaternion.copy(q.invert());
+            }
+        }
+
+        async function toggleCharging() {
+            await fetch('/api/power', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({charging: !chargingState}) });
+        }
+
+        async function setI2C(speed) { await fetch('/api/i2c', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({speed: parseInt(speed)}) }); }
+
         async function loadGal() {
             const res = await fetch('/api/captures');
             const files = await res.json();
@@ -514,6 +571,7 @@
                 ui.gallery.appendChild(div);
             });
         }
+
 
         function openLightbox(src) {
             currentFilename = src.split('/').pop();

@@ -22,6 +22,7 @@ def stitch_images(image_paths, output_path):
 
     # Use OpenCV's built-in Stitcher
     # For newer OpenCV versions, use cv2.Stitcher_create()
+    cv2.ocl.setUseOpenCL(False)
     stitcher = cv2.Stitcher_create()
     status, stitched = stitcher.stitch(images)
 
