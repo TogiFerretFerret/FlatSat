@@ -13,14 +13,8 @@ from lunar_landing_analyzer import analyze_image
 from stitching import stitch_images
 
 # --- CONFIG ---
-try:
-    # Tries to resolve 'cubesat.local' dynamically
-    PI_WIFI_IP = socket.gethostbyname("cubesat.local")
-    print(f"Resolved cubesat.local to: {PI_WIFI_IP}")
-except socket.gaierror:
-    # Fallback if the Pi is offline or mDNS fails
-    print("Could not resolve cubesat.local! Using fallback IP.")
-    PI_WIFI_IP = "192.168.1.183"
+PI_BT_MAC = "D8:3A:DD:3C:12:16"  # CHANGE THIS to your Pi's MAC
+PI_WIFI_IP = "cubesat.local"     # Use mDNS hostname directly
 PI_VIDEO_PORT = 8000
 
 # Robust Path Handling
