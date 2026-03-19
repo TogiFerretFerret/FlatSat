@@ -184,7 +184,14 @@
                     MAPPING ACTIVE: <span id="mapping-count">0</span> FRAMES
                 </div>
             </div>
-            
+
+            <!-- REALTIME MAPPING PREVIEW -->
+            <div id="mapping-preview-panel" class="panel" style="display:none; flex-direction:column; height: 180px; margin-top:5px; border-color: #00ffaa;">
+                <h2>Realtime Site Mapping</h2>
+                <div style="flex-grow:1; background:#000; position:relative; overflow:hidden;">
+                    <img id="mapping-img" src="" style="width:100%; height:100%; object-fit:contain;">
+                </div>
+            </div>
             <!-- CAPTURE CONTROLS -->
             <div style="display: flex; gap: 5px; margin-top: 2px;">
                 <button class="btn" style="flex: 2;" onclick="snap(0)">ACQUIRE (5MP)</button>
@@ -530,6 +537,16 @@
                 document.getElementById('mapping-overlay').style.display = mappingActive ? 'block' : 'none';
                 document.getElementById('mapping-count').innerText = data.mapping_frames || 0;
                 document.getElementById('btn-mapping').innerText = mappingActive ? "STOP MAPPING" : "AUTO-MAPPING MODE";
+                
+                const previewPanel = document.getElementById('mapping-preview-panel');
+                if (mappingActive && data.mapping_image) {
+                    previewPanel.style.display = 'flex';
+                    const mappingImg = document.getElementById('mapping-img');
+                    // Add timestamp to force reload
+                    mappingImg.src = `/captures/${data.mapping_image}?t=${Date.now()}`;
+                } else if (!mappingActive) {
+                    previewPanel.style.display = 'none';
+                }
             }
         };
 

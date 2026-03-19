@@ -72,10 +72,10 @@ class MappingSession:
                 if not self.active: break
             
             try:
-                # Capture a frame from the Pi
-                resp = requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/snapshot", timeout=10)
+                # Capture a frame from the Pi (faster timeout)
+                resp = requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/snapshot", timeout=2)
                 if resp.status_code == 200:
-                    ts = int(time.time())
+                    ts = int(time.time() * 100)
                     fn = f"map_frame_{ts}.jpg"
                     path = os.path.join(CAPTURE_DIR, fn)
                     with open(path, 'wb') as f: f.write(resp.content)
@@ -83,23 +83,27 @@ class MappingSession:
                     with self.lock:
                         self.frames.append(path)
                         if len(self.frames) >= 2:
-                            stitched_fn = f"map_stitched_{ts}.jpg"
+                            stitched_fn = f"map_realtime.jpg"
                             stitched_path = os.path.join(CAPTURE_DIR, stitched_fn)
                             
-                            # Limit to last 5 frames for speed in "realtime"
-                            subset = self.frames[-5:]
+                            # Stitch last 6 frames for a rolling realtime map
+                            subset = self.frames[-6:]
                             success, msg = stitch_images(subset, stitched_path)
                             
                             if success:
                                 self.master_map_fn = stitched_fn
-                                # Run analysis
-                                analysis_path = analyze_image(stitched_path, output_dir=CAPTURE_DIR)
-                                self.analysis_fn = os.path.basename(analysis_path)
-                                print(f"[Mapping] Updated Map: {self.analysis_fn}")
+                                # Run fast analysis every 3 frames to maintain high framerate
+                                if len(self.frames) % 3 == 0:
+                                    analysis_path = analyze_image(stitched_path, output_dir=CAPTURE_DIR, fast_mode=True)
+                                    self.analysis_fn = os.path.basename(analysis_path)
+                                else:
+                                    self.analysis_fn = stitched_fn
+                                    
             except Exception as e:
-                print(f"[Mapping] Error: {e}")
+                # print(f"[Mapping] Error: {e}")
+                pass
             
-            time.sleep(5) 
+            time.sleep(0.05) # Aggressive polling for "realtime" feel
         print("[Mapping] Session Stopped")
 
 mapping_session = MappingSession()
