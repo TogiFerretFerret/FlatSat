@@ -13,7 +13,6 @@ from lunar_landing_analyzer import analyze_image
 from stitching import stitch_images
 
 # --- CONFIG ---
-PI_BT_MAC = "D8:3A:DD:3C:12:16"  # CHANGE THIS to your Pi's MAC
 try:
     # Tries to resolve 'cubesat.local' dynamically
     PI_WIFI_IP = socket.gethostbyname("cubesat.local")
@@ -31,29 +30,6 @@ if not os.path.exists(CAPTURE_DIR): os.makedirs(CAPTURE_DIR)
 
 app = Flask(__name__, template_folder="web/templates", static_folder="web/static")
 
-# --- MACOS SUPPORT UTILS ---
-class SerialSocketAdapter:
-    def __init__(self, serial_port):
-        self.ser = serial_port
-    
-    def recv(self, bufsize):
-        return self.ser.read(bufsize)
-        
-    def sendall(self, data):
-        self.ser.write(data)
-        
-    def close(self):
-        self.ser.close()
-
-def find_macos_port():
-    patterns = ["/dev/cu.*pi*", "/dev/cu.*Serial*", "/dev/cu.*Artemis*"]
-    candidates = []
-    for p in patterns:
-        candidates.extend(glob.glob(p))
-    candidates = [c for c in candidates if "Bluetooth-Incoming" not in c and "wlan" not in c]
-    if candidates: return candidates[0]
-    return None
-
 @app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
@@ -63,7 +39,6 @@ def after_request(response):
 
 # Global State
 telemetry_data = {"status": "CONNECTING...", "sys": {}, "cam_meta": {}}
-bt_sock = None
 data_lock = threading.Lock()
 
 # --- MAPPING STATE ---
@@ -108,8 +83,6 @@ class MappingSession:
                     with self.lock:
                         self.frames.append(path)
                         if len(self.frames) >= 2:
-                            # Try to stitch last few frames or all?
-                            # For now, let's try to stitch everything in the session
                             stitched_fn = f"map_stitched_{ts}.jpg"
                             stitched_path = os.path.join(CAPTURE_DIR, stitched_fn)
                             
@@ -126,7 +99,7 @@ class MappingSession:
             except Exception as e:
                 print(f"[Mapping] Error: {e}")
             
-            time.sleep(5) # Slow "realtime" due to processing cost
+            time.sleep(5) 
         print("[Mapping] Session Stopped")
 
 mapping_session = MappingSession()
@@ -139,92 +112,45 @@ def update_task_progress(task_id, msg, p):
 def get_progress(task_id):
     return jsonify(task_progress.get(task_id, {"msg": "Pending", "p": 0}))
 
-def bt_client_thread():
-    global bt_sock, telemetry_data
-    if sys.platform == "darwin":
-        try: import serial
-        except ImportError:
-            print("CRITICAL: pyserial missing. Run: uv pip install pyserial")
-            return
-
+def wifi_telemetry_thread():
+    global telemetry_data
     while True:
         try:
-            s = None
-            if sys.platform == "darwin":
-                port = find_macos_port()
-                if port:
-                    print(f"[GS] Connecting to macOS Serial: {port}...")
-                    ser = serial.Serial(port, 115200, timeout=1) 
-                    s = SerialSocketAdapter(ser)
-                else:
-                    time.sleep(2); continue
-            else:
-                s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
-                s.connect((PI_BT_MAC, 1))
-            
-            with data_lock: 
-                bt_sock = s
-                telemetry_data["status"] = "ONLINE"
-            
-            while True:
-                header = s.recv(8)
-                if not header or len(header) < 8: 
-                    if len(header) == 0: break 
-                    continue 
+            # Poll telemetry from the Pi over WiFi
+            resp = requests.get(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/telemetry", timeout=2)
+            if resp.status_code == 200:
+                new_data = resp.json()
+                new_data["status"] = "ONLINE"
                 
-                type_bytes, length = struct.unpack("!4sI", header)
-                payload = b''
-                while len(payload) < length:
-                    chunk = s.recv(length - len(payload))
-                    if not chunk: break
-                    payload += chunk
-                
-                try:
-                    new_data = json.loads(payload.decode('utf-8'))
-                    new_data["status"] = "ONLINE"
+                # --- SMART INPUT VOLTAGE ESTIMATION ---
+                power = new_data.get('power', {})
+                if power.get('plugged'):
+                    bat_v = float(power.get('voltage', 0))
+                    bat_i = float(power.get('current', 0))
                     
-                    # --- SMART INPUT VOLTAGE ESTIMATION ---
-                    power = new_data.get('power', {})
-                    if power.get('plugged'):
-                        bat_v = float(power.get('voltage', 0))
-                        bat_i = float(power.get('current', 0)) # Amps
-                        
-                        # Solar Logic: 
-                        # If battery is low (<4.0V) and charging current is low (<0.1A), 
-                        # the source has likely collapsed to (Battery Voltage + Diode Drop + Overhead)
-                        # We approximate this overhead as ~0.25V
-                        
-                        if bat_v < 4.0 and bat_i < 0.1:
-                            est_input = bat_v + 0.25
-                        else:
-                            # Standard USB usually stays near 5V
-                            est_input = 5.05
-                            
-                        # Sanity Check: Input must be > Battery to be 'Plugged'
-                        est_input = max(est_input, bat_v + 0.1)
-                            
-                        new_data['power']['input_est'] = round(est_input, 2)
-                        
-                        # Calculate Watts if missing
-                        if 'watts' not in new_data['power'] or new_data['power']['watts'] == 0:
-                             new_data['power']['watts'] = round(est_input * max(0.05, bat_i), 2)
+                    if bat_v < 4.0 and bat_i < 0.1:
+                        est_input = bat_v + 0.25
                     else:
-                        new_data['power']['input_est'] = 0.0
-                        new_data['power']['watts'] = 0.0
+                        est_input = 5.05
+                    est_input = max(est_input, bat_v + 0.1)
+                    new_data['power']['input_est'] = round(est_input, 2)
                     
-                    with data_lock: telemetry_data = new_data
-                except json.JSONDecodeError: pass
-                    
+                    if 'watts' not in new_data['power'] or new_data['power']['watts'] == 0:
+                         new_data['power']['watts'] = round(est_input * max(0.05, bat_i), 2)
+                else:
+                    new_data['power']['input_est'] = 0.0
+                    new_data['power']['watts'] = 0.0
+                
+                with data_lock: telemetry_data = new_data
+            else:
+                with data_lock: telemetry_data["status"] = "WIFI ERROR"
         except Exception as e:
-            print(f"[GS] BT Error: {e}")
-            with data_lock: telemetry_data["status"] = "BT LOST"
-            if bt_sock: 
-                try: bt_sock.close()
-                except: pass
-                bt_sock = None
-            time.sleep(2)
+            # print(f"[GS] WiFi Telemetry Error: {e}")
+            with data_lock: telemetry_data["status"] = "OFFLINE"
+        
+        time.sleep(0.2)
 
-threading.Thread(target=bt_client_thread, daemon=True).start()
+threading.Thread(target=wifi_telemetry_thread, daemon=True).start()
 
 @app.route('/')
 def index():
