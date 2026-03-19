@@ -157,6 +157,8 @@ def configure_camera(width, height):
         config = cam.picam2.create_video_configuration(main={"size": (width, height), "format": "RGB888"})
         cam.picam2.configure(config)
         cam.picam2.start()
+        # Lower exposure baseline for all modes
+        cam.picam2.set_controls({"ExposureValue": -2.0})
         CURRENT_RES = (width, height)
     except Exception as e: print(f"[Cam] Config Error: {e}")
 
