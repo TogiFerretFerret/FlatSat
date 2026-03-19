@@ -259,7 +259,7 @@ def proxy_snapshot():
 @app.route('/api/captures')
 def list_captures():
     try:
-        files = sorted([f for f in os.listdir(CAPTURE_DIR) if f.lower().endswith(('.jpg', '.jpeg'))], reverse=True)
+        files = sorted([f for f in os.listdir(CAPTURE_DIR) if f.lower().endswith(('.jpg', '.jpeg', '.png'))], reverse=True)
         return jsonify(files)
     except: return jsonify([])
 
