@@ -163,7 +163,11 @@ def configure_camera(width, height):
 # Initial Config
 configure_camera(STREAM_RES[0], STREAM_RES[1])
 
+last_accel = None
+last_accel_time = None
+
 def assemble_telemetry():
+    global last_accel, last_accel_time
     data = imu.get_data() if imu else {"status": "no_imu"}
     data["status"] = "ONLINE"
     
@@ -172,8 +176,22 @@ def assemble_telemetry():
         ax, ay, az = data["accel"]["x"], data["accel"]["y"], data["accel"]["z"]
         data["total_g"] = round(math.sqrt(ax**2 + ay**2 + az**2) / 9.81, 2)
         
-        # Jerk calc omitted for brevity, add if needed
-        data["jerk"] = 0.0 
+        # Jerk Calculation
+        if last_accel is None:
+            last_accel = (ax, ay, az)
+            last_accel_time = time.time()
+            data["jerk"] = 0.0
+        else:
+            dt = time.time() - last_accel_time
+            if dt > 0.01: # Avoid div by zero or too high freq
+                dx = (ax - last_accel[0]) / dt
+                dy = (ay - last_accel[1]) / dt
+                dz = (az - last_accel[2]) / dt
+                data["jerk"] = round(math.sqrt(dx**2 + dy**2 + dz**2), 2)
+                last_accel = (ax, ay, az)
+                last_accel_time = time.time()
+            else:
+                data["jerk"] = 0.0
 
     data["sys"] = sys_mon.get_stats()
     data["sys"]["active_threads"] = threading.active_count()
@@ -284,21 +302,34 @@ class HybridNode:
         s.listen(1)
         
         while self.running:
+            client = None
             try:
+                print("[BT] Waiting for connection...")
                 client, addr = s.accept()
                 print(f"[BT] Connected: {addr}")
                 while self.running:
-                    if time.time() - self.last_cam_activity > 0.5:
+                    # Occasional background capture to keep camera warmed up if needed
+                    # but only if not busy with HTTP stream
+                    if time.time() - self.last_cam_activity > 2.0:
                         try:
+                            # Use a small timeout or non-blocking?
+                            # For now just try capture
                             with cam_lock: cam.picam2.capture_file(io.BytesIO(), format="jpeg")
                             self.last_cam_activity = time.time()
                         except: pass
+                    
                     data = assemble_telemetry()
                     data["rssi"] = self.get_rssi(addr[0])
                     msg = json.dumps(data).encode('utf-8')
                     client.sendall(struct.pack("!4sI", b"TELE", len(msg)) + msg)
-                    time.sleep(0.2)
-            except: time.sleep(1)
+                    time.sleep(0.25)
+            except (socket.error, BrokenPipeError, ConnectionResetError) as e:
+                print(f"[BT] Connection lost: {e}")
+            finally:
+                if client:
+                    try: client.close()
+                    except: pass
+            time.sleep(1)
 
 @app.route('/stream')
 def stream():
