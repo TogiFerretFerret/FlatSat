@@ -8,41 +8,51 @@ import requests
 import sys
 import glob
 from flask import Flask, render_template, jsonify, request, Response, stream_with_context, send_from_directory
-
-# --- IMPORT YOUR ALGORITHM ---
-try:
-    from lunar_landing_analyzer import analyze_image
-except ImportError as e:
-    print(f"WARNING: lunar_landing_analyzer failed to load. Missing scipy/matplotlib? {e}")
-    analyze_image = None
+from werkzeug.utils import secure_filename
+from lunar_landing_analyzer import analyze_image
+from stitching import stitch_images
 
 # --- CONFIG ---
-PI_BT_MAC = "D8:3A:DD:3C:12:16"
+PI_BT_MAC = "D8:3A:DD:3C:12:16"  # CHANGE THIS to your Pi's MAC
 try:
+    # Tries to resolve 'cubesat.local' dynamically
     PI_WIFI_IP = socket.gethostbyname("cubesat.local")
+    print(f"Resolved cubesat.local to: {PI_WIFI_IP}")
 except socket.gaierror:
+    # Fallback if the Pi is offline or mDNS fails
+    print("Could not resolve cubesat.local! Using fallback IP.")
     PI_WIFI_IP = "192.168.1.183"
 PI_VIDEO_PORT = 8000
 
+# Robust Path Handling
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CAPTURE_DIR = os.path.join(BASE_DIR, "captures")
 if not os.path.exists(CAPTURE_DIR): os.makedirs(CAPTURE_DIR)
 
 app = Flask(__name__, template_folder="web/templates", static_folder="web/static")
 
-# --- MACOS SUPPORT ---
+# --- MACOS SUPPORT UTILS ---
 class SerialSocketAdapter:
-    def __init__(self, serial_port): self.ser = serial_port
-    def recv(self, bufsize): return self.ser.read(bufsize)
-    def sendall(self, data): self.ser.write(data)
-    def close(self): self.ser.close()
+    def __init__(self, serial_port):
+        self.ser = serial_port
+    
+    def recv(self, bufsize):
+        return self.ser.read(bufsize)
+        
+    def sendall(self, data):
+        self.ser.write(data)
+        
+    def close(self):
+        self.ser.close()
 
 def find_macos_port():
     patterns = ["/dev/cu.*pi*", "/dev/cu.*Serial*", "/dev/cu.*Artemis*"]
     candidates = []
-    for p in patterns: candidates.extend(glob.glob(p))
+    for p in patterns:
+        candidates.extend(glob.glob(p))
     candidates = [c for c in candidates if "Bluetooth-Incoming" not in c and "wlan" not in c]
-    return candidates[0] if candidates else None
+    if candidates: return candidates[0]
+    return None
 
 @app.after_request
 def after_request(response):
@@ -51,76 +61,244 @@ def after_request(response):
     response.headers.add('X-Accel-Buffering', 'no')
     return response
 
+# Global State
 telemetry_data = {"status": "CONNECTING...", "sys": {}, "cam_meta": {}}
 bt_sock = None
 data_lock = threading.Lock()
+
+# --- MAPPING STATE ---
+class MappingSession:
+    def __init__(self):
+        self.active = False
+        self.frames = []
+        self.master_map_fn = None
+        self.analysis_fn = None
+        self.thread = None
+        self.lock = threading.Lock()
+
+    def start(self):
+        with self.lock:
+            if self.active: return
+            self.active = True
+            self.frames = []
+            self.master_map_fn = None
+            self.analysis_fn = None
+            self.thread = threading.Thread(target=self._run, daemon=True)
+            self.thread.start()
+
+    def stop(self):
+        with self.lock:
+            self.active = False
+
+    def _run(self):
+        print("[Mapping] Session Started")
+        while True:
+            with self.lock:
+                if not self.active: break
+            
+            try:
+                # Capture a frame from the Pi
+                resp = requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/snapshot", timeout=10)
+                if resp.status_code == 200:
+                    ts = int(time.time())
+                    fn = f"map_frame_{ts}.jpg"
+                    path = os.path.join(CAPTURE_DIR, fn)
+                    with open(path, 'wb') as f: f.write(resp.content)
+                    
+                    with self.lock:
+                        self.frames.append(path)
+                        if len(self.frames) >= 2:
+                            # Try to stitch last few frames or all?
+                            # For now, let's try to stitch everything in the session
+                            stitched_fn = f"map_stitched_{ts}.jpg"
+                            stitched_path = os.path.join(CAPTURE_DIR, stitched_fn)
+                            
+                            # Limit to last 5 frames for speed in "realtime"
+                            subset = self.frames[-5:]
+                            success, msg = stitch_images(subset, stitched_path)
+                            
+                            if success:
+                                self.master_map_fn = stitched_fn
+                                # Run analysis
+                                analysis_path = analyze_image(stitched_path, output_dir=CAPTURE_DIR)
+                                self.analysis_fn = os.path.basename(analysis_path)
+                                print(f"[Mapping] Updated Map: {self.analysis_fn}")
+            except Exception as e:
+                print(f"[Mapping] Error: {e}")
+            
+            time.sleep(5) # Slow "realtime" due to processing cost
+        print("[Mapping] Session Stopped")
+
+mapping_session = MappingSession()
+task_progress = {}
+
+def update_task_progress(task_id, msg, p):
+    task_progress[task_id] = {"msg": msg, "p": p, "ts": time.time()}
+
+@app.route('/api/progress/<task_id>')
+def get_progress(task_id):
+    return jsonify(task_progress.get(task_id, {"msg": "Pending", "p": 0}))
 
 def bt_client_thread():
     global bt_sock, telemetry_data
     if sys.platform == "darwin":
         try: import serial
-        except ImportError: return
+        except ImportError:
+            print("CRITICAL: pyserial missing. Run: uv pip install pyserial")
+            return
+
     while True:
         try:
             s = None
             if sys.platform == "darwin":
                 port = find_macos_port()
                 if port:
-                    ser = serial.Serial(port, 115200, timeout=1)
+                    print(f"[GS] Connecting to macOS Serial: {port}...")
+                    ser = serial.Serial(port, 115200, timeout=1) 
                     s = SerialSocketAdapter(ser)
-                else: time.sleep(2); continue
+                else:
+                    time.sleep(2); continue
             else:
                 s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
                 s.connect((PI_BT_MAC, 1))
-            with data_lock:
+            
+            with data_lock: 
                 bt_sock = s
                 telemetry_data["status"] = "ONLINE"
+            
             while True:
                 header = s.recv(8)
-                if not header or len(header) < 8: break
+                if not header or len(header) < 8: 
+                    if len(header) == 0: break 
+                    continue 
+                
                 type_bytes, length = struct.unpack("!4sI", header)
                 payload = b''
                 while len(payload) < length:
                     chunk = s.recv(length - len(payload))
                     if not chunk: break
                     payload += chunk
+                
                 try:
                     new_data = json.loads(payload.decode('utf-8'))
                     new_data["status"] = "ONLINE"
-                    if new_data.get('power', {}).get('plugged'):
-                        bat_v = float(new_data['power'].get('voltage', 0))
-                        new_data['power']['input_est'] = round(bat_v + 0.25, 2)
+                    
+                    # --- SMART INPUT VOLTAGE ESTIMATION ---
+                    power = new_data.get('power', {})
+                    if power.get('plugged'):
+                        bat_v = float(power.get('voltage', 0))
+                        bat_i = float(power.get('current', 0)) # Amps
+                        
+                        # Solar Logic: 
+                        # If battery is low (<4.0V) and charging current is low (<0.1A), 
+                        # the source has likely collapsed to (Battery Voltage + Diode Drop + Overhead)
+                        # We approximate this overhead as ~0.25V
+                        
+                        if bat_v < 4.0 and bat_i < 0.1:
+                            est_input = bat_v + 0.25
+                        else:
+                            # Standard USB usually stays near 5V
+                            est_input = 5.05
+                            
+                        # Sanity Check: Input must be > Battery to be 'Plugged'
+                        est_input = max(est_input, bat_v + 0.1)
+                            
+                        new_data['power']['input_est'] = round(est_input, 2)
+                        
+                        # Calculate Watts if missing
+                        if 'watts' not in new_data['power'] or new_data['power']['watts'] == 0:
+                             new_data['power']['watts'] = round(est_input * max(0.05, bat_i), 2)
+                    else:
+                        new_data['power']['input_est'] = 0.0
+                        new_data['power']['watts'] = 0.0
+                    
                     with data_lock: telemetry_data = new_data
-                except: pass
-        except:
+                except json.JSONDecodeError: pass
+                    
+        except Exception as e:
+            print(f"[GS] BT Error: {e}")
             with data_lock: telemetry_data["status"] = "BT LOST"
+            if bt_sock: 
+                try: bt_sock.close()
+                except: pass
+                bt_sock = None
             time.sleep(2)
 
 threading.Thread(target=bt_client_thread, daemon=True).start()
 
 @app.route('/')
-def index(): return render_template('dashboard.html')
+def index():
+    return render_template('dashboard.html')
 
 @app.route('/api/telemetry')
 def api_telemetry():
-    with data_lock: return jsonify(telemetry_data)
+    with data_lock:
+        data = telemetry_data.copy()
+        with mapping_session.lock:
+            data['mapping_status'] = 'active' if mapping_session.active else 'idle'
+            data['mapping_frames'] = len(mapping_session.frames)
+            data['mapping_image'] = mapping_session.analysis_fn
+        return jsonify(data)
 
-@app.route('/api/analyze/<filename>', methods=['POST'])
-def run_analysis(filename):
-    """Manually triggers the lunar landing analyzer for a specific file."""
-    if not analyze_image:
-        return jsonify({"status": "error", "message": "Analyzer libraries not loaded"}), 500
-    
-    file_path = os.path.join(CAPTURE_DIR, filename)
-    if not os.path.exists(file_path):
-        return jsonify({"status": "error", "message": "File not found"}), 404
+@app.route('/api/mapping/start', methods=['POST'])
+def start_mapping():
+    mapping_session.start()
+    return jsonify({"status": "success"})
 
+@app.route('/api/mapping/stop', methods=['POST'])
+def stop_mapping():
+    mapping_session.stop()
+    return jsonify({"status": "success"})
+
+@app.route('/api/upload', methods=['POST'])
+def upload_and_analyze():
+    task_id = request.args.get('task_id', 'upload')
     try:
-        # Run the SciPy-heavy algorithm
-        output_path = analyze_image(file_path, output_dir=CAPTURE_DIR)
-        return jsonify({"status": "success", "analysis_file": os.path.basename(output_path)})
+        if 'file' not in request.files:
+            return jsonify({"status": "error", "msg": "No file part"}), 400
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"status": "error", "msg": "No selected file"}), 400
+            
+        def cb(msg, p): update_task_progress(task_id, msg, p)
+        cb("Uploading", 0.05)
+
+        if file:
+            filename = secure_filename(file.filename)
+            filename = f"upload_{int(time.time())}_{filename}"
+            save_path = os.path.join(CAPTURE_DIR, filename)
+            file.save(save_path)
+            
+            # Immediately analyze
+            result = analyze_image(save_path, output_dir=CAPTURE_DIR, progress_callback=cb)
+            analysis_fn = os.path.basename(result['output_path'])
+            
+            return jsonify({
+                "status": "success",
+                "filename": filename,
+                "analysis_file": analysis_fn,
+                "analysis_url": f"/captures/{analysis_fn}",
+                "sites": result['sites'],
+                "zone_radius": result['zone_radius']
+            })
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        print(f"[GS] Upload Failed: {e}")
+        return jsonify({"status": "error", "msg": str(e)}), 500
+
+@app.route('/telemetry_stream')
+def telemetry_stream():
+    def event_stream():
+        while True:
+            with data_lock:
+                data = telemetry_data.copy()
+                with mapping_session.lock:
+                    data['mapping_status'] = 'active' if mapping_session.active else 'idle'
+                    data['mapping_frames'] = len(mapping_session.frames)
+                    data['mapping_image'] = mapping_session.analysis_fn
+                json_data = json.dumps(data)
+            yield f"data: {json_data}\n\n"
+            time.sleep(0.25)
+    return Response(event_stream(), mimetype='text/event-stream')
 
 @app.route('/stream')
 def proxy_video():
@@ -147,7 +325,7 @@ def proxy_snapshot():
             }
             with open(os.path.join(CAPTURE_DIR, f"{base_fn}.json"), 'w') as f: json.dump(metadata, f, indent=4)
             return jsonify({"status": "success", "file": img_fn, "pose": pose})
-    except: pass
+    except Exception as e: print(f"[GS] Snapshot Failed: {e}")
     return jsonify({"status": "error"}), 500
 
 @app.route('/api/captures')
@@ -161,20 +339,87 @@ def list_captures():
 def serve_capture(filename):
     return send_from_directory(CAPTURE_DIR, filename)
 
+@app.route('/api/analyze/<filename>', methods=['POST'])
+def analyze_capture(filename):
+    task_id = request.args.get('task_id', filename)
+    try:
+        image_path = os.path.join(CAPTURE_DIR, filename)
+        if not os.path.exists(image_path):
+            return jsonify({"status": "error", "msg": "File not found"}), 404
+            
+        def cb(msg, p): update_task_progress(task_id, msg, p)
+        
+        # Analysis
+        result = analyze_image(image_path, output_dir=CAPTURE_DIR, progress_callback=cb)
+        analysis_fn = os.path.basename(result['output_path'])
+        
+        return jsonify({
+            "status": "success",
+            "analysis_file": analysis_fn,
+            "analysis_url": f"/captures/{analysis_fn}",
+            "sites": result['sites'],
+            "zone_radius": result['zone_radius']
+        })
+    except Exception as e:
+        print(f"[GS] Analysis Failed: {e}")
+        return jsonify({"status": "error", "msg": str(e)}), 500
+
+@app.route('/api/stitch_and_analyze', methods=['POST'])
+def stitch_and_analyze():
+    task_id = request.args.get('task_id', 'stitch')
+    try:
+        filenames = request.json.get('filenames', [])
+        if not filenames or len(filenames) < 2:
+            return jsonify({"status": "error", "msg": "Need at least 2 images"}), 400
+            
+        def cb(msg, p): update_task_progress(task_id, msg, p)
+        cb("Stitching", 0.1)
+
+        image_paths = [os.path.join(CAPTURE_DIR, f) for f in filenames]
+        timestamp = int(time.time())
+        stitched_fn = f"stitched_{timestamp}.jpg"
+        stitched_path = os.path.join(CAPTURE_DIR, stitched_fn)
+        
+        success, msg = stitch_images(image_paths, stitched_path)
+        if not success:
+            return jsonify({"status": "error", "msg": f"Stitching failed: {msg}"}), 500
+            
+        # Now analyze the stitched image
+        result = analyze_image(stitched_path, output_dir=CAPTURE_DIR, progress_callback=cb)
+        analysis_fn = os.path.basename(result['output_path'])
+        
+        return jsonify({
+            "status": "success",
+            "stitched_file": stitched_fn,
+            "analysis_file": analysis_fn,
+            "analysis_url": f"/captures/{analysis_fn}",
+            "sites": result['sites'],
+            "zone_radius": result['zone_radius']
+        })
+    except Exception as e:
+        print(f"[GS] Stitch and Analyze Failed: {e}")
+        return jsonify({"status": "error", "msg": str(e)}), 500
+
 @app.route('/api/clock', methods=['POST'])
 def proxy_clock():
-    requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/api/clock", json=request.json, timeout=3)
-    return jsonify({"status": "proxied"})
+    try:
+        requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/api/clock", json=request.json, timeout=3)
+        return jsonify({"status": "proxied"})
+    except Exception as e: return jsonify({"status": "error", "msg": str(e)}), 502
 
 @app.route('/api/i2c', methods=['POST'])
 def proxy_i2c():
-    requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/api/i2c", json=request.json, timeout=3)
-    return jsonify({"status": "proxied"})
+    try:
+        requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/api/i2c", json=request.json, timeout=3)
+        return jsonify({"status": "proxied"})
+    except Exception as e: return jsonify({"status": "error", "msg": str(e)}), 502
 
 @app.route('/api/power', methods=['POST'])
 def proxy_power():
-    requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/api/power", json=request.json, timeout=3)
-    return jsonify({"status": "proxied"})
+    try:
+        requests.post(f"http://{PI_WIFI_IP}:{PI_VIDEO_PORT}/api/power", json=request.json, timeout=3)
+        return jsonify({"status": "proxied"})
+    except Exception as e: return jsonify({"status": "error", "msg": str(e)}), 502
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000, threaded=True)
