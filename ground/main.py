@@ -293,10 +293,14 @@ def stitch_and_analyze():
     task_id = request.args.get('task_id', 'stitch')
     try:
         filenames = request.json.get('filenames', [])
+        print(f"[GS] Stitch Request: {len(filenames)} images")
         if not filenames or len(filenames) < 2:
             return jsonify({"status": "error", "msg": "Need at least 2 images"}), 400
             
-        def cb(msg, p): update_task_progress(task_id, msg, p)
+        def cb(msg, p): 
+            print(f"[GS] Stitch Progress: {msg} ({p*100:.0f}%)")
+            update_task_progress(task_id, msg, p)
+            
         cb("Stitching", 0.1)
 
         image_paths = [os.path.join(CAPTURE_DIR, f) for f in filenames]
@@ -304,14 +308,18 @@ def stitch_and_analyze():
         stitched_fn = f"stitched_{timestamp}.jpg"
         stitched_path = os.path.join(CAPTURE_DIR, stitched_fn)
         
+        print(f"[GS] Running OpenCV Stitcher on {len(image_paths)} files...")
         success, msg = stitch_images(image_paths, stitched_path)
         if not success:
+            print(f"[GS] Stitching Failed: {msg}")
             return jsonify({"status": "error", "msg": f"Stitching failed: {msg}"}), 500
             
+        print(f"[GS] Stitch Success! -> {stitched_fn}. Analyzing...")
         # Now analyze the stitched image
         result = analyze_image(stitched_path, output_dir=CAPTURE_DIR, progress_callback=cb)
         analysis_fn = os.path.basename(result['output_path'])
         
+        print(f"[GS] Analysis Complete -> {analysis_fn}")
         return jsonify({
             "status": "success",
             "stitched_file": stitched_fn,
@@ -321,7 +329,9 @@ def stitch_and_analyze():
             "zone_radius": result['zone_radius']
         })
     except Exception as e:
-        print(f"[GS] Stitch and Analyze Failed: {e}")
+        print(f"[GS] Stitch and Analyze CRITICAL ERROR: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"status": "error", "msg": str(e)}), 500
 
 @app.route('/api/clock', methods=['POST'])
